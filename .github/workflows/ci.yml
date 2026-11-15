@@ -53,9 +53,21 @@ jobs:
           done
           echo "✅ All JavaScript files have valid syntax"
 
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          # The installs above pass --no-audit, so nothing was checking the
+          # dependency tree. Fail on high and above; moderate and below are
+          # reported but do not block, since a dev-only advisory should not
+          # stop a release.
+          npm audit --audit-level=high
+
       - name: Check for console.log in production code
         run: |
-          if grep -r "console\.log" src/ --include="*.js" | grep -v "console\.error\|console\.warn\|IS_DEBUG"; then
+          # Catches console.log, console['log'] and console["log"], including
+          # when the call is split across lines. The earlier line-based
+          # grep -v missed bracket notation entirely.
+          if grep -rnE "console\s*\.\s*log\b|console\s*\[\s*['\"]log['\"]\s*\]" src/ --include="*.js" \
+             | grep -vE "console\.(error|warn)|IS_DEBUG"; then
             echo "❌ Found raw console.log in production code"
             exit 1
           else
@@ -64,9 +76,16 @@ jobs:
 
       - name: Check CSP compliance (no inline scripts)
         run: |
-          # Check HTML files for inline scripts
-          if grep -r "<script>" src/ --include="*.html" | grep -v "type=\"module\""; then
+          # `<script>` only matched the exact literal, so `<script >` and
+          # inline event handlers passed. Match any script open tag and any
+          # on* handler, then allow only type="module" tags.
+          if grep -rnE "<script[[:space:]>]" src/ --include="*.html" \
+             | grep -vE 'type="module"'; then
             echo "❌ Found inline script without type=module"
+            exit 1
+          fi
+          if grep -rnE "\son[a-z]+[[:space:]]*=" src/ --include="*.html"; then
+            echo "❌ Found an inline event handler (CSP forbids it)"
             exit 1
           fi
           # Check for eval/Function constructor
@@ -83,7 +102,8 @@ jobs:
             const allowed = {
               'script-src': [S('self'), S('wasm-unsafe-eval'), S('wasm-eval'), S('inline-speculation-rules'), S('none')],
               'object-src': [S('self'), S('none')],
-              'worker-src': [S('self'), S('none')]
+              'worker-src': [S('self'), S('none')],
+              'style-src': [S('self'), S('unsafe-inline'), S('none')]
             };
             let errors = [];
             for (const d of csp.split(';').map(x => x.trim().split(/\s+/)).filter(x => x.length)) {
@@ -237,6 +257,33 @@ jobs:
           done
           echo "✅ All icons have correct dimensions"
 
+      # Firefox ships a different manifest and a different background script, so
+      # the Chrome checks above would pass a broken Gecko build. Building it here
+      # (rather than only in the post-merge package job) means a PR that breaks
+      # Firefox fails before it merges.
+      - name: Build Firefox package
+        run: ./build-firefox.sh
+
+      - name: Verify Firefox package
+        run: |
+          test -f phishnet-v1.0.0-firefox.zip || { echo "❌ firefox zip missing"; exit 1; }
+          unzip -l phishnet-v1.0.0-firefox.zip | grep -q "src/background-firefox.js" || {
+            echo "❌ firefox zip is missing the event-page background"; exit 1;
+          }
+          if unzip -l phishnet-v1.0.0-firefox.zip | grep -q "src/background.js"; then
+            echo "❌ firefox zip still contains the Chrome service worker"; exit 1
+          fi
+          unzip -p phishnet-v1.0.0-firefox.zip manifest.json | grep -q "browser_specific_settings" || {
+            echo "❌ firefox manifest is missing browser_specific_settings"; exit 1;
+          }
+          if unzip -p phishnet-v1.0.0-firefox.zip manifest.json | grep -q '"offscreen"'; then
+            echo "❌ firefox manifest still requests the offscreen permission"; exit 1
+          fi
+          if unzip -l phishnet-v1.0.0-firefox.zip | grep -q "public/test-emails.html"; then
+            echo "❌ dev playground shipped in the firefox zip"; exit 1
+          fi
+          echo "✅ firefox package is valid"
+
   test:
     name: Unit Tests
     runs-on: ubuntu-24.04
@@ -261,7 +308,11 @@ jobs:
     name: Package Extension
     runs-on: ubuntu-24.04
     needs: [lint, validate, test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Build artifacts on PRs too, so a reviewer can load the extension rather
+    # than trusting the diff. PR runs keep them briefly; main keeps them longer.
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -309,9 +360,36 @@ jobs:
           done
           echo "✅ packaged zip contains every page the manifest references"
 
+      - name: Build Firefox package
+        run: ./build-firefox.sh
+
+      - name: Verify Firefox package
+        run: |
+          # Firefox ships a different manifest and a different background script,
+          # so a Chrome-only check would pass a broken Gecko build.
+          test -f phishnet-v1.0.0-firefox.zip || { echo "❌ firefox zip missing"; exit 1; }
+          unzip -l phishnet-v1.0.0-firefox.zip | grep -q "src/background-firefox.js" || {
+            echo "❌ firefox zip is missing the event-page background"; exit 1;
+          }
+          unzip -l phishnet-v1.0.0-firefox.zip | grep -q "src/background.js" && {
+            echo "❌ firefox zip still contains the Chrome service worker"; exit 1;
+          } || true
+          unzip -p phishnet-v1.0.0-firefox.zip manifest.json | grep -q "browser_specific_settings" || {
+            echo "❌ firefox manifest is missing browser_specific_settings"; exit 1;
+          }
+          unzip -p phishnet-v1.0.0-firefox.zip manifest.json | grep -q '"offscreen"' && {
+            echo "❌ firefox manifest still requests the offscreen permission"; exit 1;
+          } || true
+          unzip -l phishnet-v1.0.0-firefox.zip | grep -q "public/test-emails.html" && {
+            echo "❌ dev playground shipped in the firefox zip"; exit 1;
+          } || true
+          echo "✅ firefox package is valid"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: phishnet-extension
-          path: "phishnet-v${{ steps.version.outputs.version }}.zip"
-          retention-days: 30
+          path: |
+            phishnet-v${{ steps.version.outputs.version }}.zip
+            phishnet-v1.0.0-firefox.zip
+          retention-days: ${{ github.event_name == 'push' && '30' || '7' }}

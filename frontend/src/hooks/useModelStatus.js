@@ -18,7 +18,8 @@ export function useModelStatus(pollInterval = 4000) {
       if (!mounted || !res) return;
       setStatus(res.modelStatus || 'loading');
       setProgress(res.progress || 0);
-      if (res.error) setError(res.error);
+      // Clear as well as set: a stale error outlives the failure that caused it.
+      setError(res.error || null);
     };
 
     refresh();
@@ -28,7 +29,7 @@ export function useModelStatus(pollInterval = 4000) {
       if (!mounted || !payload) return;
       setStatus(payload.status || 'loading');
       setProgress(payload.progress || 0);
-      if (payload.error) setError(payload.error);
+      setError(payload.error || null);
     });
 
     return () => {

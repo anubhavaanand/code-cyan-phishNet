@@ -1,10 +1,9 @@
 # Dependencies
 node_modules/
 
-# Vendor files - minified bundles may trigger false positive secret scans
-vendor/
-
-# Documentation (internal developer notes)
+# Documentation: doc/ holds internal developer notes and is deliberately
+# private — it is not the user-facing site. The public site lives in docs/
+# (GitHub Pages) and is tracked.
 doc/
 
 # Build & Package outputs

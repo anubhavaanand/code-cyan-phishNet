@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "minimum_chrome_version": "109",
   "name": "PhishNet",
   "version": "1.1.0",
   "description": "Privacy-first phishing email detector using on-device AI. Works on Gmail & Outlook.",
@@ -56,21 +57,9 @@
     "https://outlook.live.com/*",
     "https://outlook.office.com/*",
     "https://outlook.office365.com/*",
-    "https://huggingface.co/*",
     "https://*.huggingface.co/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
-  },
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "public/icons/*",
-        "vendor/ort-wasm/*"
-      ],
-      "matches": [
-        "<all_urls>"
-      ]
-    }
-  ]
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self'"
+  }
 }

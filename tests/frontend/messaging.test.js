@@ -122,6 +122,21 @@ describe('getLocalStorage', () => {
     expect(mock.sent).toHaveLength(0);
   });
 
+  it('resolves an empty object and warns when storage reports an error', async () => {
+    const { getLocalStorage } = await load();
+    const error = { message: 'Storage unavailable' };
+    const lastError = vi.spyOn(mock.chrome.runtime, 'lastError', 'get').mockReturnValue(error);
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      await expect(getLocalStorage(['scanHistory'])).resolves.toEqual({});
+      expect(warning).toHaveBeenCalledWith(error.message);
+    } finally {
+      lastError.mockRestore();
+      warning.mockRestore();
+    }
+  });
+
   it('resolves an empty object when storage is unavailable', async () => {
     const { getLocalStorage } = await load();
     const saved = globalThis.chrome.storage.local;

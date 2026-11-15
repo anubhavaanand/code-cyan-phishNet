@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@/styles/tokens.css';
 import { Icon, Toggle, Slider, Card, Button } from '@/components';
@@ -27,9 +27,21 @@ function OptionsApp() {
     }
   }, [settings.theme]);
 
+  // Held so it can be cleared: a bare setTimeout fired after unmount would set
+  // state on a component that no longer exists.
+  const toastTimer = useRef(null);
+
+  useEffect(() => () => {
+    if (toastTimer.current !== null) clearTimeout(toastTimer.current);
+  }, []);
+
   const showToast = (msg) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 2000);
+    if (toastTimer.current !== null) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => {
+      toastTimer.current = null;
+      setToast(null);
+    }, 2000);
   };
 
   const sensPct = Math.round((settings.sensitivityThreshold ?? 0.7) * 100);

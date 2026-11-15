@@ -74,7 +74,15 @@ export async function scanCurrentTab() {
 export function getLocalStorage(keys) {
   return new Promise((resolve) => {
     if (!api?.storage?.local) { resolve({}); return; }
-    api.storage.local.get(keys, (data) => resolve(data));
+    api.storage.local.get(keys, (data) => {
+      const error = api.runtime?.lastError;
+      if (error) {
+        console.warn(error.message);
+        resolve({});
+        return;
+      }
+      resolve(data);
+    });
   });
 }
 

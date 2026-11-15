@@ -77,7 +77,9 @@ export const SENSITIVITY_LABELS = [
 
 export function getSensitivityLabel(value) {
   const pct = Math.round(value * 100);
-  return SENSITIVITY_LABELS.find((s) => s.value === pct) || SENSITIVITY_LABELS[2];
+  return SENSITIVITY_LABELS.reduce((best, s) =>
+    Math.abs(s.value - pct) < Math.abs(best.value - pct) ? s : best
+  );
 }
 
 /**

@@ -19,6 +19,10 @@ const WORKFLOW = path.join(ROOT, '.github/workflows/assign.yml');
 
 const bot = require(SCRIPT);
 
+// Destructured so the guard test can compare against the script's own sets
+// rather than a copy of them.
+const { CLAIM_COMMANDS, RELEASE_COMMANDS } = bot;
+
 const labels = (...names) => names.map((name) => ({ name }));
 const issues = (...numbers) => numbers.map((n) => ({ number: n }));
 
@@ -35,9 +39,18 @@ describe('parseCommand', () => {
     }
   });
 
-  test('is case-insensitive and tolerates surrounding space', () => {
-    assert.equal(bot.parseCommand('   /ASSIGN-ME  ').kind, 'claim');
-    assert.equal(bot.parseCommand('\n/Release\n').kind, 'release');
+  test('tolerates surrounding space', () => {
+    assert.equal(bot.parseCommand('   /assign-me  ').kind, 'claim');
+    assert.equal(bot.parseCommand('\n/release\n').kind, 'release');
+  });
+
+  test('is case-sensitive, matching the workflow guard', () => {
+    // The workflow admits a command with contains(), and GitHub expressions
+    // have no case-folding, so an uppercase command would be skipped by the
+    // guard before the script ever saw it. Accepting it here would be a
+    // command that works in theory and never in practice.
+    assert.equal(bot.parseCommand('/ASSIGN-ME').kind, null);
+    assert.equal(bot.parseCommand('/Release').kind, null);
   });
 
   test('accepts trailing text after the command', () => {
@@ -238,6 +251,39 @@ describe('workflow wiring', () => {
   test('skips pull requests and bot comments', () => {
     assert.match(yml, /github\.event\.issue\.pull_request == null/);
     assert.match(yml, /github\.event\.comment\.user\.type != 'Bot'/);
+  });
+
+  test('the job guard admits every command the script implements', () => {
+    // The workflow `if` is a pre-filter: it stops a runner being allocated for
+    // ordinary conversation. If it drifted from the script's command list, a
+    // valid command would never reach the script and would silently do nothing.
+    //
+    // The guard matches with contains(), so `/assign` also admits `/assign-me`.
+    // Assert the real relation: every command must contain one of the tokens.
+    const guard = yml.slice(yml.indexOf('if:'), yml.indexOf('runs-on:'));
+    const tokens = [...guard.matchAll(/contains\(github\.event\.comment\.body, '\/([a-z-]+)'\)/g)]
+      .map((m) => m[1]);
+    assert.ok(tokens.length > 0, 'guard tests no command tokens');
+
+    for (const cmd of [...CLAIM_COMMANDS, ...RELEASE_COMMANDS]) {
+      assert.ok(
+        tokens.some((t) => cmd.includes(t)),
+        `job guard does not admit /${cmd} (tokens: ${tokens.join(', ')})`
+      );
+    }
+  });
+
+  test('the job guard uses only functions GitHub expressions support', () => {
+    // GitHub expressions expose contains/startsWith/endsWith/format/join/
+    // toJSON/fromJSON/hashFiles. Using anything else (trim, for instance) makes
+    // the whole workflow file invalid, which fails the run before any job runs.
+    const guard = yml.slice(yml.indexOf('if:'), yml.indexOf('runs-on:'));
+    const called = [...guard.matchAll(/([a-zA-Z]+)\(/g)].map((m) => m[1]);
+    const allowed = new Set(['always', 'cancelled', 'contains', 'endswith', 'failure',
+      'format', 'fromjson', 'hashfiles', 'join', 'startswith', 'success', 'tojson']);
+    for (const fn of called) {
+      assert.ok(allowed.has(fn), `job guard calls unsupported function ${fn}()`);
+    }
   });
 
   test('grants issues write and nothing more', () => {

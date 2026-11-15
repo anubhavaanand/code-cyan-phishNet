@@ -105,7 +105,7 @@ export function TrustedSection({ whitelist, onUpdate }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {whitelist.map((entry, i) => (
             <div
-              key={entry}
+              key={`${entry}-${i}`}
               style={{
                 display: 'flex',
                 alignItems: 'center',

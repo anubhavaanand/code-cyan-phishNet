@@ -6,17 +6,24 @@ import React, { useEffect, useRef, useState } from 'react';
 export function AnimatedNumber({ value, duration = 600 }) {
   const [display, setDisplay] = useState(0);
   const rafRef = useRef(null);
+  const currentRef = useRef(0);
 
   useEffect(() => {
     const start = performance.now();
-    const startVal = 0;
+    // Animate from wherever the number currently sits. Starting from zero made
+    // a changed target re-count from scratch (10 -> 20 flashed through 0).
+    const startVal = currentRef.current;
     const target = value;
+    const delta = target - startVal;
+    if (delta === 0) return undefined;
 
     const tick = (now) => {
       const elapsed = now - start;
       const progress = Math.min(elapsed / duration, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
-      setDisplay(Math.round(startVal + (target - startVal) * eased));
+      const next = Math.round(startVal + delta * eased);
+      currentRef.current = next;
+      setDisplay(next);
       if (progress < 1) {
         rafRef.current = requestAnimationFrame(tick);
       }
