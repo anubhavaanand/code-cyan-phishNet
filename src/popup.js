@@ -43,6 +43,8 @@ const tabButtons = document.querySelectorAll('.tab-btn');
 const tabContents = document.querySelectorAll('.tab-content');
 
 // State
+let statusPollTimer = null;
+
 let currentSettings = {
   autoScan: true,
   highlightLinks: true,
@@ -52,13 +54,26 @@ let currentSettings = {
 };
 
 function applyTheme(theme) {
-  const t = ['aloe', 'graphite', 'dusk'].includes(theme) ? theme : 'aloe';
-  document.body.dataset.theme = t;
+  document.body.dataset.theme = resolvePopupTheme(theme);
   document.querySelectorAll('.swatch').forEach(b => {
-    const on = b.dataset.theme === t;
+    const on = b.dataset.theme === document.body.dataset.theme;
     b.classList.toggle('active', on);
     b.setAttribute('aria-checked', String(on));
   });
+}
+
+/**
+ * The React options page writes auto/light/dark; this legacy popup ships its
+ * own three accents (aloe, graphite, dusk). Without a mapping an unknown value
+ * fell back to aloe, so a user who picked Dark in options got the light accent.
+ */
+function resolvePopupTheme(theme) {
+  if (['aloe', 'graphite', 'dusk'].includes(theme)) return theme;
+  if (theme === 'light') return 'aloe';
+  if (theme === 'dark') return 'graphite';
+  // 'auto', or anything unrecognised: follow the OS.
+  const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+  return prefersDark ? 'graphite' : 'aloe';
 }
 
 /**
@@ -72,7 +87,8 @@ async function init() {
   await loadSettings();
   await loadStatsAndHistory();
 
-  setInterval(refreshStatus, 4000);
+  // Keep the handle so the poll can be stopped rather than left running.
+  statusPollTimer = setInterval(refreshStatus, 4000);
 }
 
 /**
@@ -137,6 +153,12 @@ function updateStatusUI(status = 'loading', progress = 0) {
       statusLabel.textContent = 'Rules Active';
       progressBar.classList.remove('visible');
       break;
+    default:
+      // An unknown status would otherwise leave the previous label on screen
+      // and apply a dot class with no matching CSS.
+      statusLabel.textContent = 'Unknown';
+      progressBar.classList.remove('visible');
+      break;
   }
 }
 
@@ -167,7 +189,20 @@ function applySettingsToUI() {
     const val = Math.round((currentSettings.sensitivityThreshold ?? 0.7) * 100);
     thresholdSlider.value = val;
     thresholdValue.textContent = `${val}%`;
+    updateSliderFill(val);
   }
+}
+
+/**
+ * The slider track is painted with `var(--fill, 47%)`; without setting it the
+ * fill sits at the fallback and never follows the thumb.
+ */
+function updateSliderFill(value) {
+  if (!thresholdSlider) return;
+  const min = Number(thresholdSlider.min) || 0;
+  const max = Number(thresholdSlider.max) || 100;
+  const pct = max > min ? ((Number(value) - min) / (max - min)) * 100 : 0;
+  thresholdSlider.style.setProperty('--fill', `${pct}%`);
 }
 
 /**
@@ -202,9 +237,12 @@ function loadStatsAndHistory() {
           sub.textContent = item.subject || item.sender;
 
           const tag = document.createElement('span');
-          const isPhish = item.label.includes('phishing');
-          const isSafe = item.label.includes('legitimate');
-          const isTrusted = item.label === 'trusted';
+          // A corrupt or legacy record can carry a non-string label; treating
+          // it as text throws and aborts the whole history render.
+          const label = typeof item.label === 'string' ? item.label : '';
+          const isPhish = label.includes('phishing');
+          const isSafe = label.includes('legitimate');
+          const isTrusted = label === 'trusted';
 
           tag.className = 'history-tag ' + (isPhish ? 'phishing' : (isTrusted ? 'trusted' : (isSafe ? 'safe' : 'uncertain')));
           tag.textContent = isTrusted ? 'Trusted' : (isPhish ? 'Phish' : (isSafe ? 'Safe' : 'Uncertain'));
@@ -325,6 +363,7 @@ function setupEventListeners() {
   thresholdSlider?.addEventListener('input', (e) => {
     const value = parseInt(e.target.value);
     thresholdValue.textContent = `${value}%`;
+    updateSliderFill(value);
   });
 
   thresholdSlider?.addEventListener('change', (e) => {
@@ -451,3 +490,12 @@ async function updateSetting(key, value) {
 
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', init);
+
+// The popup is torn down when it loses focus; an interval left running would
+// keep polling a document that is already gone.
+window.addEventListener('pagehide', () => {
+  if (statusPollTimer !== null) {
+    clearInterval(statusPollTimer);
+    statusPollTimer = null;
+  }
+});
