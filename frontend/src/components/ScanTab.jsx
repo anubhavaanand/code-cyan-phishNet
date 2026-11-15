@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Button, ConfidenceRing, Card, Icon } from '@/components';
+import { Button, Card, Icon } from '@/components';
 import { getVerdictMeta } from '@/lib/constants';
 import { scanCurrentTab } from '@/lib/messaging';
 
@@ -131,7 +131,7 @@ export function ScanTab({ onScanComplete }) {
         <div style={{ fontFamily: 'var(--pn-font-heading)', fontSize: 'var(--pn-text-lg)', fontWeight: 800, color: 'var(--pn-text-primary)' }}>
           Check This Email
         </div>
-        <div style={{ fontSize: 'var(--pn-text-sm)', color: 'var(--pn-text-tertiary)', marginTop: 4, maxWidth: 240, margin: '4px auto 0' }}>
+        <div style={{ fontSize: 'var(--pn-text-sm)', color: 'var(--pn-text-tertiary)', maxWidth: 240, margin: '4px auto 0' }}>
           Scan the email you're reading for phishing signs — instantly, on your device.
         </div>
       </div>
