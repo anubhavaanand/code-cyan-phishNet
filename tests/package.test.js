@@ -135,6 +135,39 @@ describe('content security policy', () => {
 });
 
 describe('production source hygiene', () => {
+  const CI = read('.github/workflows/ci.yml');
+
+  test('the console.log gate catches bracket notation', () => {
+    // The old gate was a line-based `grep -v`, which missed console['log']
+    // and console["log"] entirely. Pin the pattern that replaced it.
+    assert.ok(
+      CI.includes('grep -rnE "console'),
+      'gate must use an extended regex, not a literal grep'
+    );
+    assert.ok(
+      CI.includes('console\\s*\\.\\s*log'),
+      'gate must match console.log including whitespace'
+    );
+    assert.ok(
+      CI.includes('console\\s*\\['),
+      'gate must match console["log"] bracket notation'
+    );
+    assert.ok(
+      !CI.includes('grep -r "console\\.log" src/'),
+      'the fragile line-based grep must not return'
+    );
+  });
+
+  test('the CSP gate matches any script tag and inline handlers', () => {
+    assert.match(CI, /<script\[\[:space:\]>\]/);
+    assert.match(CI, /\\son\[a-z\]\+\[\[:space:\]\]\*=/);
+    assert.doesNotMatch(
+      CI,
+      /grep -r "<script>" src\//,
+      'the exact-literal script grep must not return'
+    );
+  });
+
   test('new-tab links in shipped HTML cannot access the opener', () => {
     const htmlFiles = [
       'docs/index.html',
