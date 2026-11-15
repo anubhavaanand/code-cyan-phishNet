@@ -225,7 +225,7 @@
       }
 
       // Fallback to advanced heuristic detector
-      const heuristicRes = heuristicDetect(emailContent, emailContent.links, emailContent.attachments);
+      const heuristicRes = heuristicDetect(emailContent);
       const result = mlResult ? Object.assign({}, heuristicRes, mlResult, {
         links: heuristicRes.links,
         attachments: heuristicRes.attachments,
