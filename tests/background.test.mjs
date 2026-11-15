@@ -57,6 +57,25 @@ describe('GET_STATUS / GET_SETTINGS', () => {
 });
 
 describe('UPDATE_SETTINGS', () => {
+  it('keeps the trusted-sender list out of unsolicited tab broadcasts', async () => {
+    const originalQuery = mock.chrome.tabs.query;
+    mock.chrome.tabs.query = (_query, callback) => callback([{ id: 42 }]);
+    try {
+      const result = await send({ type: 'UPDATE_SETTINGS', settings: { showTooltip: true } });
+      assert.equal(result.success, true);
+      const broadcast = mock.tabMessages.filter((entry) => entry.message.type === 'SETTINGS_UPDATE').at(-1);
+      assert.equal(broadcast.tabId, 42);
+      assert.equal(broadcast.message.payload.showTooltip, true);
+      assert.equal(Object.hasOwn(broadcast.message.payload, 'whitelist'), false);
+
+      // Explicit settings requests still support trusted-sender checks in content scripts.
+      const requested = await send({ type: 'GET_SETTINGS' });
+      assert.ok(requested.whitelist.includes('github.com'));
+    } finally {
+      mock.chrome.tabs.query = originalQuery;
+    }
+  });
+
   it('rejects malformed whitelist updates without corrupting settings or storage', async () => {
     const before = (await send({ type: 'GET_SETTINGS' })).whitelist;
     const storedBefore = mock.localStore.whitelist;
