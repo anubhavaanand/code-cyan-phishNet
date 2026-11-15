@@ -211,6 +211,47 @@ describe('URL analysis', () => {
     assert.match(result.links[0].reason, /unencrypted HTTP/i);
   });
 
+  test('does not double-count links or attachments passed twice', () => {
+    // Callers pass emailContent as well as its links and attachments, so the
+    // same entry can arrive twice. Each must be counted once.
+    const links = [
+      { href: 'https://example.com/a' },
+      { href: 'https://example.com/b' },
+    ];
+    const attachments = [
+      { name: 'invoice.pdf' },
+      { name: 'statement.pdf' },
+    ];
+    const email = {
+      subject: 'Hi',
+      text: 'See the attached invoice',
+      sender: {},
+      links,
+      attachments,
+    };
+
+    const once = heuristicDetect(email);
+    const twice = heuristicDetect(email, email.links, email.attachments);
+
+    assert.equal(twice.links.length, 2, 'each link must appear once');
+    assert.equal(
+      new Set(twice.links.map((l) => l.href)).size,
+      2,
+      'no duplicated hrefs'
+    );
+    assert.equal(twice.attachments.length, 2, 'each attachment must appear once');
+    assert.equal(
+      new Set(twice.attachments.map((a) => a.name)).size,
+      2,
+      'no duplicated attachment names'
+    );
+    // The two call shapes must agree.
+    assert.deepEqual(
+      twice.links.map((l) => l.suspicious),
+      once.links.map((l) => l.suspicious)
+    );
+  });
+
   test('flags high-abuse TLDs', () => {
     assert.equal(isUrlSuspicious('http://paypal-login.tk/verify'), true);
     assert.equal(isUrlSuspicious('https://microsoft-support.xyz/update'), true);

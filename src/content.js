@@ -224,8 +224,11 @@
         logger.debug('ML inference unavailable, applying heuristic detection');
       }
 
-      // Fallback to advanced heuristic detector
-      const heuristicRes = heuristicDetect(emailContent, emailContent.links, emailContent.attachments);
+      // Fallback to advanced heuristic detector.
+      // heuristicDetect reads links and attachments off emailContent; passing
+      // them again as positional args made it concatenate each array onto
+      // itself, so every link and attachment was counted twice.
+      const heuristicRes = heuristicDetect(emailContent);
       const result = mlResult ? Object.assign({}, heuristicRes, mlResult, {
         links: heuristicRes.links,
         attachments: heuristicRes.attachments,
