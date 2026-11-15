@@ -269,9 +269,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }).catch(() => {});
         });
       sendResponse({ success: true });
-      break;
+      return true;
+    default:
+      // No other type is handled here. Returning true unconditionally used to
+      // keep the channel open with no response, which the caller would hang on.
+      sendResponse({ success: false, error: `Unsupported message type: ${message.type}` });
+      return false;
   }
-  return true;
 });
 
 // Initialize on load
