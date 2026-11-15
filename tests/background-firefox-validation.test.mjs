@@ -1,5 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { validateSettingsPatch } from '../src/utils/settings-validation.mjs';
+
+test('shared theme validation keeps Chrome and Firefox choices separate', () => {
+  const firefoxThemes = new Set(['aloe', 'graphite', 'dusk']);
+  assert.equal(validateSettingsPatch({ theme: 'dark' }), null);
+  assert.equal(validateSettingsPatch({ theme: 'graphite' }), 'Invalid theme setting');
+  assert.equal(validateSettingsPatch({ theme: 'graphite' }, firefoxThemes), null);
+  assert.equal(validateSettingsPatch({ theme: 'dark' }, firefoxThemes), 'Invalid theme setting');
+});
 
 test('Firefox rejects malformed and hostile settings without persisting them', async () => {
   const syncStore = {
@@ -40,7 +49,9 @@ test('Firefox rejects malformed and hostile settings without persisting them', a
 
   for (const invalid of [
     null, [], { autoScan: 'false' }, { sensitivityThreshold: -1 },
-    { theme: 'unknown' }, { theme: 'light' }, { whitelist: [42] },
+    { theme: 'unknown' }, { theme: 'light' }, { theme: 'auto' },
+    { theme: 'dark' }, { whitelist: [42] },
+    { whitelist: Array.from({ length: 101 }, (_, i) => `sender${i}.example`) },
     { whitelist: ['ok.example', 'bad domain'] }, { whitelist: ['x.example', 'x.example'] },
     { extraPermission: true },
   ]) {
@@ -57,6 +68,12 @@ test('Firefox rejects malformed and hostile settings without persisting them', a
   assert.equal(good.success, true);
   assert.equal(syncStore.sensitivityThreshold, 0.35);
   assert.equal(syncStore.theme, 'graphite');
+
+  for (const theme of ['aloe', 'graphite', 'dusk']) {
+    const result = await handler({ type: 'UPDATE_SETTINGS', settings: { theme } });
+    assert.equal(result.success, true, `Firefox must accept ${theme}`);
+    assert.equal(syncStore.theme, theme);
+  }
 
   for (const invalid of [42, {}, 'not a domain', 'x'.repeat(255)]) {
     const before = writes.length;
