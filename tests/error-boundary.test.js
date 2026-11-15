@@ -100,6 +100,49 @@ describe('safe DOM helpers', () => {
     };
     assert.equal(safeQuery(el, ['<<<invalid>>>', '.good']).tag, 'good');
   });
+
+  test('safeQuery warns when every selector in the chain misses', () => {
+    // A total miss is how provider UI changes present: every selector silently
+    // returns null, the scan finds nothing, and nothing says why.
+    const warnings = [];
+    const el = { querySelector: () => null };
+    const original = console.warn;
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+      const result = safeQuery(el, ['.gone', '.also-gone'], 'Body');
+      assert.equal(result, null);
+    } finally {
+      console.warn = original;
+    }
+    assert.equal(warnings.length, 1, 'a total miss must be reported once');
+    assert.match(warnings[0], /Body/);
+    assert.match(warnings[0], /no selector matched/);
+  });
+
+  test('safeQuery stays quiet when a selector matches', () => {
+    const warnings = [];
+    const el = { querySelector: (sel) => (sel === '.hit' ? { tag: 'hit' } : null) };
+    const original = console.warn;
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+      assert.equal(safeQuery(el, ['.miss', '.hit'], 'Body').tag, 'hit');
+    } finally {
+      console.warn = original;
+    }
+    assert.equal(warnings.length, 0, 'a hit must not warn');
+  });
+
+  test('safeQuery does not warn for a missing element', () => {
+    const warnings = [];
+    const original = console.warn;
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+      assert.equal(safeQuery(null, ['.a'], 'Body'), null);
+    } finally {
+      console.warn = original;
+    }
+    assert.equal(warnings.length, 0, 'no element is not a selector failure');
+  });
 });
 
 describe('timing helpers', () => {
