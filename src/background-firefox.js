@@ -33,6 +33,32 @@ const DEFAULT_SETTINGS = {
 };
 
 let settings = { ...DEFAULT_SETTINGS };
+const FIREFOX_THEMES = ['aloe', 'graphite', 'dusk'];
+const MAX_TRUSTED_SENDERS = 100;
+
+async function normalizedWhitelist(values) {
+  const { normalizeStoredSettings } = await import(browser.runtime.getURL('src/utils/settings.mjs'));
+  const defaults = { ...DEFAULT_SETTINGS, whitelist: [] };
+  return normalizeStoredSettings({ whitelist: values }, defaults, FIREFOX_THEMES).whitelist;
+}
+
+async function validatedSettingsPatch(patch) {
+  const { validateSettingsPatch } = await import(browser.runtime.getURL('src/utils/settings-validation.mjs'));
+  const error = validateSettingsPatch(patch);
+  if (error) return { error };
+  if (patch.theme !== undefined && !FIREFOX_THEMES.includes(patch.theme)) {
+    return { error: 'Invalid Firefox theme setting' };
+  }
+  const valid = { ...patch };
+  if (Object.hasOwn(valid, 'whitelist')) {
+    const entries = await normalizedWhitelist(valid.whitelist);
+    if (entries.length !== valid.whitelist.length) {
+      return { error: 'Invalid or duplicate whitelist entry' };
+    }
+    valid.whitelist = entries;
+  }
+  return { settings: valid };
+}
 
 // ---- model wiring (Transformers.js v3, local vendor bundle) ----
 const MODEL_ID = 'onnx-community/phishing-email-detection-distilbert_v2.4.1-ONNX';
@@ -185,14 +211,8 @@ async function runInference(emailData) {
 // ---- settings ----
 async function loadSettings() {
   const got = await browser.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
-  settings = {
-    autoScan: got.autoScan ?? true,
-    sensitivityThreshold: got.sensitivityThreshold ?? 0.7,
-    highlightLinks: got.highlightLinks ?? true,
-    showTooltip: got.showTooltip ?? true,
-    theme: got.theme ?? 'aloe',
-    whitelist: Array.isArray(got.whitelist) ? got.whitelist : [...DEFAULT_SETTINGS.whitelist]
-  };
+  const { normalizeStoredSettings } = await import(browser.runtime.getURL('src/utils/settings.mjs'));
+  settings = normalizeStoredSettings(got, DEFAULT_SETTINGS, FIREFOX_THEMES);
   return settings;
 }
 
@@ -255,25 +275,38 @@ async function handleMessage(message) {
       return { modelStatus, progress: modelLoadProgress, settings };
 
     case 'UPDATE_SETTINGS': {
-      settings = await saveSettings(message.settings || {});
+      const checked = await validatedSettingsPatch(message.settings);
+      if (checked.error) return { success: false, error: checked.error };
+      settings = await saveSettings(checked.settings);
       broadcastSettingsUpdate();
       return { success: true, settings };
     }
 
     case 'ADD_WHITELIST': {
-      const entry = String(message.entry || '').trim().toLowerCase();
-      if (entry && !settings.whitelist.includes(entry)) {
-        settings.whitelist.push(entry);
-        await saveSettings({ whitelist: settings.whitelist });
+      if (typeof message.entry !== 'string') {
+        return { success: false, error: 'Whitelist entry must be a string' };
+      }
+      const validated = await normalizedWhitelist([message.entry]);
+      if (validated.length !== 1) {
+        return { success: false, error: 'Invalid whitelist entry' };
+      }
+      const entry = validated[0];
+      if (!settings.whitelist.includes(entry)) {
+        if (settings.whitelist.length >= MAX_TRUSTED_SENDERS) {
+          return { success: false, error: 'Whitelist is full' };
+        }
+        await saveSettings({ whitelist: [...settings.whitelist, entry] });
         broadcastSettingsUpdate();
       }
       return { success: true, whitelist: settings.whitelist };
     }
 
     case 'REMOVE_WHITELIST': {
-      const entry = String(message.entry || '').trim().toLowerCase();
-      settings.whitelist = settings.whitelist.filter((w) => w !== entry);
-      await saveSettings({ whitelist: settings.whitelist });
+      if (typeof message.entry !== 'string') {
+        return { success: false, error: 'Whitelist entry must be a string' };
+      }
+      const entry = message.entry.trim().toLowerCase();
+      settings = await saveSettings({ whitelist: settings.whitelist.filter((w) => w !== entry) });
       broadcastSettingsUpdate();
       return { success: true, whitelist: settings.whitelist };
     }
