@@ -4,6 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PhishNet</title>
+  <!--
+    This is the Firefox popup (vanilla JS).
+    Chrome uses the React popup built from frontend/ into dist/ (see manifest.json).
+    Both popups are intentional per-browser builds — see CONTRIBUTING.md "Two popups, on purpose".
+    Do not delete; build-firefox.sh copies this to dist-firefox/.
+  -->
   <style>
     * {
       box-sizing: border-box;
