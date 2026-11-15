@@ -606,6 +606,11 @@
           reasons.push(`Security persona from unverified domain: ${sender.email}`);
         }
       }
+
+      // Lookalike(45) + impersonation(34) + persona(25) can reach 104 against a
+      // documented cap of 45. The other three sub-scores are clamped; this one
+      // was not, so the Threat Inspector drew a bar past its own maximum.
+      senderTrustScore = Math.min(senderTrustScore, 45);
     }
 
     // ---- 3. link inspection ----
