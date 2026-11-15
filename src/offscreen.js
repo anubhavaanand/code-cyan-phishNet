@@ -25,9 +25,18 @@ env.backends.onnx.wasm.numThreads = 1; // Single thread for browser compatibilit
 
 // Model configuration
 const MODEL_ID = 'onnx-community/phishing-email-detection-distilbert_v2.4.1-ONNX';
+
+// Pinned revision. Without this the fetch resolves to whatever `main` points
+// at, so a mutated or replaced model would be loaded and executed in this
+// document's WASM context. The sha is the commit this extension was tested
+// against; bump it deliberately, never implicitly.
+// Verify with: curl -sL https://huggingface.com/api/models/<MODEL_ID> | jq -r .sha
+const MODEL_REVISION = '8b488fdbc432690dd9323f5fd8119c5f3290b46b';
+
 const MODEL_OPTIONS = {
-  dtype: 'q8',  // Quantized for smaller size (~50MB)
-  device: 'auto' // Use WebGPU if available, fallback to WASM
+  dtype: 'q8',            // Quantized for smaller size (~50MB)
+  device: 'auto',         // Use WebGPU if available, fallback to WASM
+  revision: MODEL_REVISION
 };
 
 // Label mapping from model output (based on cybersectony/phishing-email-detection-distilbert_v2.4.1)
