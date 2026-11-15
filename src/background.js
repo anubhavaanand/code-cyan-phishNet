@@ -215,8 +215,14 @@ async function handleIncomingMessage(message, sender) {
       }
 
       try {
-        // Do not forward links, attachments, sender or arbitrary extra fields.
-        const result = await runInference({ text: message.payload.text });
+        // Forward the sender and links the model's reason generation needs, but
+        // nothing else: the body, subject, attachments, and any other field
+        // stay out of the offscreen document. Both are already bounded by
+        // validScanPayload above.
+        const payload = { text: message.payload.text };
+        if (message.payload.sender !== undefined) payload.sender = message.payload.sender;
+        if (message.payload.links !== undefined) payload.links = message.payload.links;
+        const result = await runInference(payload);
         return { success: true, result };
       } catch (error) {
         logger.error('Inference error:', error);
