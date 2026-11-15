@@ -323,11 +323,24 @@ describe('attachment analysis', () => {
     // `min` is not a document type, so app.min.js is a normal compound name,
     // not an attempt to disguise an executable.
     const a = analyzeAttachment('app.min.js');
-    assert.equal(a.dangerous, true, 'a .js attachment is still dangerous');
     assert.doesNotMatch(a.reason, /double extension/i);
     assert.match(a.reason, /script attachment/i);
 
     assert.doesNotMatch(analyzeAttachment('bundle.min.js').reason, /double extension/i);
+  });
+
+  test('a bare script attachment is not dangerous on its own', () => {
+    // .js is common in legitimate mail (a module, a config file), so it does
+    // not raise the risk score by itself.
+    assert.equal(analyzeAttachment('app.js').dangerous, false);
+    assert.equal(analyzeAttachment('app.min.js').dangerous, false);
+    assert.equal(analyzeAttachment('bundle.js').dangerous, false);
+  });
+
+  test('a script disguised as a document is still caught', () => {
+    const a = analyzeAttachment('invoice.pdf.js');
+    assert.equal(a.dangerous, true);
+    assert.match(a.reason, /double extension/i);
   });
 
   test('flags directly executable extensions', () => {

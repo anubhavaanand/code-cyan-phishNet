@@ -31,6 +31,15 @@
     'hta','iso','img','lnk','jar','msi','ps1','reg','pif'
   ]);
 
+  // Scripts are common in legitimate mail — a developer sending a module, a
+  // config file — so a bare .js is not treated as dangerous on its own. It is
+  // still dangerous when it is disguised as a document (invoice.pdf.js), which
+  // the double-extension check below handles.
+  const SCRIPT_EXTENSIONS = new Set(['js', 'jse']);
+  const EXECUTABLE_EXTENSIONS = new Set(
+    [...DANGEROUS_EXTENSIONS].filter((e) => !SCRIPT_EXTENSIONS.has(e))
+  );
+
   // Types that are safe to open, and therefore the ones worth disguising. Only
   // a document type in front of a dangerous one is a deception.
   const DOCUMENT_TYPES = new Set([
@@ -406,8 +415,11 @@
       return { filename, dangerous: true, reason: `Deceptive double extension detected: .${doubleExtMatch[1]}.${doubleExtMatch[2]}` };
     }
     const extMatch = lowerName.match(/\.([a-z0-9]+)$/i);
-    if (extMatch && DANGEROUS_EXTENSIONS.has(extMatch[1])) {
+    if (extMatch && EXECUTABLE_EXTENSIONS.has(extMatch[1])) {
       return { filename, dangerous: true, reason: `Executable or script attachment: .${extMatch[1]}` };
+    }
+    if (extMatch && SCRIPT_EXTENSIONS.has(extMatch[1])) {
+      return { filename, dangerous: false, reason: `Script attachment: .${extMatch[1]}` };
     }
     return { filename, dangerous: false };
   }
