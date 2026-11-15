@@ -11,8 +11,11 @@
 
 **Please do NOT open public issues for security vulnerabilities.**
 
-Instead, email **security@phishnet.example.com** (or contact maintainers via GitHub private message) with:
+Instead, report privately using GitHub's **Private Vulnerability Reporting**:
+- Go to the repository's **Security** tab → **Report a vulnerability**
+- Or use the advisory form at https://github.com/anubhavaanand/code-cyan-phishNet/security/advisories/new
 
+Include:
 1. Description of the vulnerability
 2. Steps to reproduce
 3. Potential impact
@@ -39,7 +42,8 @@ PhishNet protects users from phishing emails. We assume:
 │  │ Content Script  │  │ Offscreen Document              │  │
 │  │ (Isolated World)│  │ (Transformers.js + Model)       │  │
 │  │ - DOM extract   │◀─│ - Local inference only          │  │
-│  │ - UI inject     │  │ - No network requests           │  │
+│  │ - UI inject     │  │ - One-time model download       │  │
+│  │                 │    from Hugging Face on first run │  │
 │  └─────────────────┘  └─────────────────────────────────┘  │
 │         │                       │                            │
 │         ▼                       ▼                            │
@@ -54,27 +58,34 @@ PhishNet protects users from phishing emails. We assume:
 | Component | Email Content Access | Network Access |
 |-----------|---------------------|----------------|
 | Content Script | ✅ Read-only (DOM) | ❌ None |
-| Offscreen Document | ✅ Via message | ❌ None (inference) |
-| Background SW | ❌ Never | ❌ None |
-| Popup | ❌ Never | ❌ None |
-| Model Download | ❌ N/A | ✅ One-time (jsDelivr CDN) |
+| Offscreen Document | ✅ Via message | ⚠️ One-time model download from Hugging Face on first run; inference is local |
+| Background SW | ⚠️ Relays in memory — reads `payload.text` to forward to offscreen; **never persisted** | ❌ None |
+| Popup | ✅ Reads bounded scan history and stats | ❌ None |
+| Model Download | ❌ N/A | ✅ One-time from Hugging Face |
 
 ### Privacy Guarantees
 - **Zero email content** leaves the browser
 - **Zero analytics/telemetry**
 - **Model cached locally** in IndexedDB
-- **Settings only** in `chrome.storage.sync`
+- **Scan history and stats** in `chrome.storage.local` (device-local, never synced)
+- **Preferences only** in `chrome.storage.sync`
+
+The service worker sees email text only in memory, for the duration of a single
+`SCAN_EMAIL` message, to relay it to the offscreen document. It writes nothing
+to storage and makes no request with it. The offscreen document does not persist
+it either; only a bounded scan record (subject, sender, timestamp) is kept so the
+popup can show recent scans, and `CLEAR_HISTORY` removes it.
 
 ## Known Security Considerations
 
 ### CSP Configuration
 ```json
 "content_security_policy": {
-  "extension_pages": "script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; object-src 'self'; worker-src 'self' blob:"
+  "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
 }
 ```
 - `'wasm-unsafe-eval'` required for ONNX Runtime WebAssembly
-- CDN allowlisted for Transformers.js library only
+- No CDN is allowlisted in the CSP; all network access is governed by `host_permissions`
 - No inline scripts, no eval() in our code
 
 ### Permissions Justification
@@ -87,7 +98,7 @@ PhishNet protects users from phishing emails. We assume:
 ### Model Supply Chain
 - Model: `onnx-community/phishing-email-detection-distilbert_v2.4.1-ONNX`
 - Source: Hugging Face Hub → jsDelivr CDN
-- Verification: Transformers.js validates model integrity
+- Integrity: model files are cached locally via IndexedDB; no hash pinning is performed (see PRIVACY_POLICY.md for local-only model cache)
 - Alternative: Self-host model (see DEPLOYMENT.md)
 
 ## Security Best Practices for Contributors
@@ -124,12 +135,11 @@ If a vulnerability is discovered in production:
 - [ ] CSP unchanged or tightened
 - [ ] No inline scripts added
 - [ ] No email content in logs/storage
-- [ ] Model integrity verified
 - [ ] Settings schema unchanged
 - [ ] Offscreen document reasons minimal
 - [ ] Content script matches unchanged
 
 ## Contact
 
-Security concerns: **security@phishnet.example.com**
+Security concerns: GitHub Private Vulnerability Reporting (see above)
 General issues: GitHub Issues

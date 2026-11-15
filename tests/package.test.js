@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const crypto = require('node:crypto');
 
 const ROOT = path.resolve(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
@@ -87,11 +88,25 @@ describe('manifest', () => {
     }
   });
 
+  test('does not duplicate the Hugging Face host grant', () => {
+    const hosts = manifest.host_permissions.filter((pattern) => pattern.includes('huggingface.co'));
+    assert.deepEqual(hosts, ['https://*.huggingface.co/*']);
+  });
+
   test('registers content scripts for Gmail and Outlook', () => {
     const matches = manifest.content_scripts.flatMap((cs) => cs.matches).join(' ');
     assert.match(matches, /mail\.google\.com/);
     assert.match(matches, /outlook\.live\.com/);
     assert.match(matches, /outlook\.office\.com/);
+  });
+
+  test('keeps bundled inference binaries and icons private to extension pages', () => {
+    // The offscreen document and manifest icons are extension-owned. They do
+    // not require web_accessible_resources, which exposes files to websites.
+    assert.deepEqual(manifest.web_accessible_resources || [], []);
+    assert.match(read('src/offscreen.js'), /chrome\.runtime\.getURL\('vendor\/ort-wasm\/'\)/);
+    assert.ok(exists('public/offscreen.html'));
+    assert.ok(exists('vendor/ort-wasm/'), 'WASM binaries must remain bundled');
   });
 });
 
@@ -102,6 +117,7 @@ describe('content security policy', () => {
     'script-src': [S('self'), S('wasm-unsafe-eval'), S('wasm-eval'), S('none'), S('inline-speculation-rules')],
     'object-src': [S('self'), S('none')],
     'worker-src': [S('self'), S('none')],
+    'style-src': [S('self'), S('unsafe-inline'), S('none')],
   };
 
   test('allows wasm but no remote script sources', () => {
@@ -120,7 +136,155 @@ describe('content security policy', () => {
   });
 });
 
+describe('vendored three.js', () => {
+  test('the vendored bundle is r160 and matches its recorded hash', () => {
+    const src = read('docs/vendor/three.module.js');
+    const rev = src.match(/REVISION\s*=\s*['\"]([^'\"]+)/);
+    assert.ok(rev, 'could not read the three.js revision');
+    assert.equal(rev[1], '160');
+
+    const crypto = require('node:crypto');
+    const hash = crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'docs/vendor/three.module.js'))).digest('hex');
+    assert.equal(hash, '76dea8151bc9352aef3528b4262e249b2604f62543828328db978d060d61a495');
+  });
+
+  test('VENDOR.md records the pin and the update path', () => {
+    const v = read('docs/vendor/VENDOR.md');
+    assert.match(v, /r160/);
+    assert.match(v, /76dea8151bc9352aef3528b4262e249b2604f62543828328db978d060d61a495/);
+    assert.match(v, /scripts\/update-three\.sh/);
+  });
+
+  test('the update script exists and refuses split builds', () => {
+    const script = read('scripts/update-three.sh');
+    assert.match(script, /three\.core\.js/);
+    assert.match(script, /Refusing to install automatically/);
+  });
+});
+
+describe('vendored dependencies', () => {
+  // The bundles are checked in and loaded from the extension origin under a
+  // strict CSP, so nothing in package.json records them. VENDOR.md is that
+  // record, and these tests are what keeps it true.
+  const VENDOR = read('VENDOR.md');
+  const crypto = require('node:crypto');
+  const sha256 = (file) => crypto.createHash('sha256')
+    .update(fs.readFileSync(path.join(ROOT, file)))
+    .digest('hex');
+
+  const BUNDLES = {
+    'vendor/transformers.min.js': '22266dbd81a41ed97699215a63a67e416662d70cc5f3e2d98215220d234c698d',
+    'vendor/ort-wasm/ort-wasm-simd-threaded.jsep.mjs': '3014f077d2d51ffd2174d3bcb72df482b897b81828cb3082d63e9c0a601fa3d4',
+    'vendor/ort-wasm/ort-wasm-simd-threaded.jsep.wasm': 'f125583adb98686fe44ac652a924657479b48495fecb19c6e67d4f6ea84277df',
+  };
+
+  test('every vendored bundle matches its recorded hash', () => {
+    for (const [file, expected] of Object.entries(BUNDLES)) {
+      assert.equal(sha256(file), expected, `${file} changed without updating VENDOR.md`);
+    }
+  });
+
+  test('VENDOR.md records every vendored bundle and its version', () => {
+    for (const file of Object.keys(BUNDLES)) {
+      assert.ok(VENDOR.includes(file), `VENDOR.md does not mention ${file}`);
+    }
+    assert.match(VENDOR, /@huggingface\/transformers/);
+    assert.match(VENDOR, /onnxruntime-web/);
+    assert.match(VENDOR, /3\.0\.0/);
+    assert.match(VENDOR, /1\.20\.0/);
+  });
+
+  test('VENDOR.md lists the hash of every bundle', () => {
+    for (const hash of Object.values(BUNDLES)) {
+      assert.ok(VENDOR.includes(hash), `hash ${hash} missing from VENDOR.md`);
+    }
+  });
+});
+
+describe('security scanning', () => {
+  const CI = read('.github/workflows/ci.yml');
+
+  test('CI audits the dependency tree and fails on high', () => {
+    // Every install passes --no-audit, so without this nothing ever looked at
+    // the dependency tree for known vulnerabilities.
+    assert.match(CI, /npm audit --audit-level=high/);
+    assert.doesNotMatch(
+      CI,
+      /npm audit --audit-level=(moderate|low|info)/,
+      'the audit threshold must not be weakened below high'
+    );
+  });
+
+  test('CodeQL runs on push, pull request and a weekly schedule', () => {
+    const codeql = read('.github/workflows/codeql.yml');
+    assert.match(codeql, /languages: javascript-typescript/);
+    assert.match(codeql, /security-events: write/);
+    assert.match(codeql, /branches: \[main\]/);
+    assert.match(codeql, /cron:/);
+  });
+});
+
+describe('model provenance', () => {
+  const OFFSCREEN = read('src/offscreen.js');
+
+  test('the model fetch is pinned to an exact revision', () => {
+    // Without a revision the fetch resolves to whatever `main` points at, so a
+    // mutated or replaced model would be loaded and executed here.
+    const match = OFFSCREEN.match(/const MODEL_REVISION = '([0-9a-f]{40})'/);
+    assert.ok(match, 'MODEL_REVISION must be a full 40-character commit sha');
+    assert.match(OFFSCREEN, /revision: MODEL_REVISION/);
+  });
+
+  test('the revision pin is documented as deliberate', () => {
+    assert.match(OFFSCREEN, /Pinned revision/);
+  });
+
+  test('the message listener answers unknown types instead of hanging', () => {
+    // The listener used to end with an unconditional `return true`, which left
+    // the channel open with no sendResponse for any type it did not handle.
+    assert.match(OFFSCREEN, /default:/, 'the switch needs a default case');
+    assert.match(
+      OFFSCREEN,
+      /Unsupported message type/,
+      'an unknown type must be answered with an error'
+    );
+  });
+});
+
 describe('production source hygiene', () => {
+  const CI = read('.github/workflows/ci.yml');
+
+  test('the console.log gate catches bracket notation', () => {
+    // The old gate was a line-based `grep -v`, which missed console['log']
+    // and console["log"] entirely. Pin the pattern that replaced it.
+    assert.ok(
+      CI.includes('grep -rnE "console'),
+      'gate must use an extended regex, not a literal grep'
+    );
+    assert.ok(
+      CI.includes('console\\s*\\.\\s*log'),
+      'gate must match console.log including whitespace'
+    );
+    assert.ok(
+      CI.includes('console\\s*\\['),
+      'gate must match console["log"] bracket notation'
+    );
+    assert.ok(
+      !CI.includes('grep -r "console\\.log" src/'),
+      'the fragile line-based grep must not return'
+    );
+  });
+
+  test('the CSP gate matches any script tag and inline handlers', () => {
+    assert.match(CI, /<script\[\[:space:\]>\]/);
+    assert.match(CI, /\\son\[a-z\]\+\[\[:space:\]\]\*=/);
+    assert.doesNotMatch(
+      CI,
+      /grep -r "<script>" src\//,
+      'the exact-literal script grep must not return'
+    );
+  });
+
   test('new-tab links in shipped HTML cannot access the opener', () => {
     const htmlFiles = [
       'docs/index.html',

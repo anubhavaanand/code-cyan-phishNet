@@ -8,9 +8,6 @@
 
   const EMAIL_SELECTORS = {
     gmail: {
-      // Main thread container
-      threadContainer: '[data-thread-id]',
-
       // Individual email messages within thread
       messages: '[data-message-id]',
 
@@ -29,31 +26,15 @@
       senderName: '[data-message-id] .go .qu span[title]',
       senderFallback: '[data-message-id] .gD[email]',
 
-      // Date/time
-      timestamp: '[data-message-id] .g3 span[title]',
-
-      // Thread view indicator
-      threadView: '[data-thread-id]',
-
-      // Compose/reply area (to avoid extracting)
-      composeArea: '.M9[data-message-id]',
-      draftArea: '[data-is-draft="true"]',
-
       // Attachment selectors
       attachments: '[data-message-id] .aZo, [data-message-id] span[download_url]',
-      attachmentLinks: '[data-message-id] .aZo a, [data-message-id] span[download_url] a',
       attachmentNames: '[data-message-id] .aV3, [data-message-id] .aZo span[title]',
       attachmentSizes: '[data-message-id] .SaRA, [data-message-id] .aZo .SaRBLe',
 
       // Link selectors for phishing detection
-      links: '[data-message-id] a[href]',
-      linkText: '[data-message-id] a[href] *'
-    },
+      links: '[data-message-id] a[href]'    },
 
     outlook: {
-      // Main thread container
-      threadContainer: '[data-convid]',
-
       // Individual messages
       messages: '[data-convid] [role="listitem"]',
 
@@ -72,30 +53,16 @@
       senderEmail: '[data-testid="message-header-sender-email"]',
       senderFallback: '[data-testid="from"]',
 
-      // Timestamp
-      timestamp: '[data-testid="message-header-date"]',
-
-      // Thread container
-      threadView: '[data-testid="conversation-container"]',
-
-      // Areas to avoid
-      composeArea: '[data-testid="compose-body-wrapper"]',
-      replyArea: '[data-testid="reply-compose-box"]',
-
       // Attachment selectors
       attachments: '[data-testid*="attachment"]',
-      attachmentLinks: '[data-testid*="attachment"] a',
       attachmentNames: '[data-testid="attachment-name"]',
       attachmentSizes: '[data-testid="attachment-size"]',
 
       // Link selectors for phishing detection
-      links: '[data-convid] a[href]',
-      linkText: '[data-convid] a[href] *'
-    },
+      links: '[data-convid] a[href]'    },
 
     // Outlook.com specific selectors (personal Outlook)
     outlookCom: {
-      threadContainer: '[data-convid]',
       messages: '[data-convid] [role="listitem"]',
       messageBody: '[data-testid="message-body-content"]',
       messageBodyAlt: '[data-testid="message-body"] .allowTextSelection',
@@ -104,21 +71,14 @@
       subjectAlt: 'h1[data-testid="subject"]',
       sender: '[data-testid="message-header-sender-name"]',
       senderEmail: '[data-testid="message-header-sender-email"]',
-      timestamp: '[data-testid="message-header-date"]',
-      threadView: '[data-testid="conversation-container"]',
-      composeArea: '[data-testid="compose-body-wrapper"]',
-      replyArea: '[data-testid="reply-compose-box"]',
       attachments: '[data-testid*="attachment"]',
-      attachmentLinks: '[data-testid*="attachment"] a',
       attachmentNames: '[data-testid="attachment-name"]',
       attachmentSizes: '[data-testid="attachment-size"]',
       links: '[data-convid] a[href]',
-      linkText: '[data-convid] a[href] *'
     },
 
     // Outlook Office 365 specific selectors (business/enterprise Outlook)
     outlookOffice365: {
-      threadContainer: '[data-convid]',
       messages: '[data-convid] [role="listitem"]',
       messageBody: '[data-testid="message-body-content"]',
       messageBodyAlt: '[aria-label*="Message body"] .allowTextSelection',
@@ -127,16 +87,10 @@
       subjectAlt: '[id*="subject"]',
       sender: '[data-testid="message-header-sender-name"]',
       senderEmail: '[data-testid="message-header-sender-email"]',
-      timestamp: '[data-testid="message-header-date"]',
-      threadView: '[data-testid="conversation-container"]',
-      composeArea: '[data-testid="compose-body-wrapper"]',
-      replyArea: '[data-testid="reply-compose-box"]',
       attachments: '[data-testid*="attachment"]',
-      attachmentLinks: '[data-testid*="attachment"] a',
       attachmentNames: '[data-testid="attachment-name"]',
       attachmentSizes: '[data-testid="attachment-size"]',
       links: '[data-convid] a[href]',
-      linkText: '[data-convid] a[href] *'
     }
   };
 
@@ -184,14 +138,6 @@
       '[data-smartmail="signature"]',
       '.yj6qo', // Gmail signature class
       '.adn.ads' // Gmail ads
-    ],
-
-    // Loading indicators
-    loadingIndicators: [
-      '.loading',
-      '[data-testid="loading"]',
-      '.spinner',
-      '.ms-Spinner'
     ],
 
     // Phishing indicator keywords (for reason generation)

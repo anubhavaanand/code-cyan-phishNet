@@ -60,6 +60,31 @@ describe('homograph detection', () => {
     assert.equal(typeof detectHomographAttack(''), 'boolean');
     assert.equal(typeof detectHomographAttack('localhost'), 'boolean');
   });
+
+  test('does not flag legitimate internationalised domains', () => {
+    // Punycode is ordinary IDN. Flagging every xn-- label marked real
+    // internationalised domains as phishing.
+    for (const domain of [
+      'xn--bcher-kva.de',        // bücher.de
+      'xn--p1ai',                // рф, the Cyrillic TLD
+      'xn--e1afmkfd.xn--p1ai',   // пример.рф
+      'xn--n3h.com',             // ☃.com
+      'xn--fiqs8s',              // 中国
+      'xn--80ak6aa92e.com',
+    ]) {
+      assert.equal(detectHomographAttack(domain), false, `${domain} must not be flagged`);
+    }
+  });
+
+  test('flags punycode that decodes to a brand lookalike', () => {
+    // xn--pypal-4ve decodes to pаypal with a Cyrillic а.
+    assert.equal(detectHomographAttack('xn--pypal-4ve.com'), true);
+  });
+
+  test('still flags mixed-script domains without punycode', () => {
+    assert.equal(detectHomographAttack('pаypal.com'), true);
+    assert.equal(detectHomographAttack('microsоft.com'), true);
+  });
 });
 
 describe('brand lookalike detection', () => {
@@ -74,6 +99,39 @@ describe('brand lookalike detection', () => {
 
   test('flags subdomain deception', () => {
     assert.ok(checkLookalikeBrand('paypal.com.account-verify.xyz'));
+  });
+
+  test('does not flag domains that merely contain a brand as a substring', () => {
+    // cleanDomain.includes(brand) flagged these: the brand was part of a longer
+    // word, not a label of its own.
+    for (const domain of [
+      'mygithub.io',
+      'notamazon.com',
+      'amazoniantribes.org',
+      'appleorchard.com',
+      'netflix-dvd.net',
+      'githubtv.com',
+    ]) {
+      assert.equal(checkLookalikeBrand(domain), null, `${domain} must not be flagged`);
+    }
+  });
+
+  test('still flags a brand used as its own label', () => {
+    for (const domain of [
+      'github.evil.com',
+      'paypal.com.attacker.net',
+      'github.com.evil.net',
+      'amazon.support-login.com',
+    ]) {
+      assert.ok(checkLookalikeBrand(domain), `${domain} must be flagged`);
+    }
+  });
+
+  test('still flags real typos and confusable spoofs', () => {
+    assert.ok(checkLookalikeBrand('paypa1.com'));
+    assert.ok(checkLookalikeBrand('payapl.com'));
+    assert.ok(checkLookalikeBrand('paypall.com'));
+    assert.ok(checkLookalikeBrand('g00gle.com'));
   });
 
   test('does not flag the official domain', () => {
@@ -153,6 +211,75 @@ describe('URL analysis', () => {
     assert.match(result.links[0].reason, /unencrypted HTTP/i);
   });
 
+  test('does not double-count links or attachments passed twice', () => {
+    // Callers pass emailContent as well as its links and attachments, so the
+    // same entry can arrive twice. Each must be counted once.
+    const links = [
+      { href: 'https://example.com/a' },
+      { href: 'https://example.com/b' },
+    ];
+    const attachments = [
+      { name: 'invoice.pdf' },
+      { name: 'statement.pdf' },
+    ];
+    const email = {
+      subject: 'Hi',
+      text: 'See the attached invoice',
+      sender: {},
+      links,
+      attachments,
+    };
+
+    const once = heuristicDetect(email);
+    const twice = heuristicDetect(email, email.links, email.attachments);
+
+    assert.equal(twice.links.length, 2, 'each link must appear once');
+    assert.equal(
+      new Set(twice.links.map((l) => l.href)).size,
+      2,
+      'no duplicated hrefs'
+    );
+    assert.equal(twice.attachments.length, 2, 'each attachment must appear once');
+    assert.equal(
+      new Set(twice.attachments.map((a) => a.name)).size,
+      2,
+      'no duplicated attachment names'
+    );
+    // The two call shapes must agree.
+    assert.deepEqual(
+      twice.links.map((l) => l.suspicious),
+      once.links.map((l) => l.suspicious)
+    );
+  });
+
+  test('flags interactive form elements reported by the content script', () => {
+    const base = {
+      subject: 'Hi', text: 'Please review the attached', sender: {},
+      links: [], attachments: []
+    };
+    assert.deepEqual(heuristicDetect(base).reasons, []);
+    assert.ok(
+      heuristicDetect({ ...base, hasFormElements: true }).reasons
+        .some((r) => /form elements/i.test(r))
+    );
+  });
+
+  test('matches urgency keywords on word boundaries only', () => {
+    const reasons = (t) => heuristicDetect({
+      subject: 'x', text: t, sender: {}, links: [], attachments: []
+    }).reasons;
+
+    // `includes` fired `tax` on "taxi" and `account` on "accounting".
+    assert.deepEqual(reasons('The taxi rank is on 5th'), []);
+    assert.deepEqual(reasons('Our accounting team prepared this'), []);
+
+    // Real signals still fire.
+    assert.ok(reasons('Verify your account now').some((r) => /urgency/i.test(r)));
+    assert.ok(reasons('Your tax refund is ready').some((r) => /urgency/i.test(r)));
+    // Multi-word phrases still match.
+    assert.ok(reasons('Limited time offer').some((r) => /urgency/i.test(r)));
+  });
+
   test('flags high-abuse TLDs', () => {
     assert.equal(isUrlSuspicious('http://paypal-login.tk/verify'), true);
     assert.equal(isUrlSuspicious('https://microsoft-support.xyz/update'), true);
@@ -220,6 +347,30 @@ describe('attachment analysis', () => {
     assert.equal(analyzeAttachment('Document.docx.vbs').dangerous, true);
   });
 
+  test('a compound name is not a deceptive double extension', () => {
+    // `min` is not a document type, so app.min.js is a normal compound name,
+    // not an attempt to disguise an executable.
+    const a = analyzeAttachment('app.min.js');
+    assert.doesNotMatch(a.reason, /double extension/i);
+    assert.match(a.reason, /script attachment/i);
+
+    assert.doesNotMatch(analyzeAttachment('bundle.min.js').reason, /double extension/i);
+  });
+
+  test('a bare script attachment is not dangerous on its own', () => {
+    // .js is common in legitimate mail (a module, a config file), so it does
+    // not raise the risk score by itself.
+    assert.equal(analyzeAttachment('app.js').dangerous, false);
+    assert.equal(analyzeAttachment('app.min.js').dangerous, false);
+    assert.equal(analyzeAttachment('bundle.js').dangerous, false);
+  });
+
+  test('a script disguised as a document is still caught', () => {
+    const a = analyzeAttachment('invoice.pdf.js');
+    assert.equal(a.dangerous, true);
+    assert.match(a.reason, /double extension/i);
+  });
+
   test('flags directly executable extensions', () => {
     assert.equal(analyzeAttachment('payment_receipt.iso').dangerous, true);
     assert.equal(analyzeAttachment('runme.scr').dangerous, true);
@@ -283,6 +434,27 @@ describe('heuristicDetect — classification', () => {
     assert.equal(result.links[0].suspicious, false);
     assert.equal(result.links[1].suspicious, false);
     assert.equal(result.links[2].suspicious, false);
+  });
+
+  test('clamps every sub-score to its documented cap', () => {
+    // A maximally hostile message: lookalike(45) + impersonation(34) + persona(25)
+    // would reach 104 against a documented cap of 45.
+    const r = heuristicDetect({
+      subject: 'Verify your account',
+      text: 'Act now, limited time',
+      sender: {
+        name: 'PayPal Security',
+        email: 'security@paypa1-secure.tk',
+        domain: 'paypa1-secure.tk'
+      },
+      links: [{ href: 'http://paypa1-secure.tk/login' }],
+      attachments: [{ name: 'invoice.pdf.exe' }]
+    });
+    const s = r.signals;
+    assert.ok(s.senderTrustScore <= 45, `trust ${s.senderTrustScore} over cap`);
+    assert.ok(s.urgencyScore <= 40, `urgency ${s.urgencyScore} over cap`);
+    assert.ok(s.linkRiskScore <= 45, `links ${s.linkRiskScore} over cap`);
+    assert.ok(s.attachmentRiskScore <= 50, `attachments ${s.attachmentRiskScore} over cap`);
   });
 
   test('flags credential phishing with urgency and a bad link', () => {

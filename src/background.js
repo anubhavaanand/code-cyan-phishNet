@@ -5,19 +5,13 @@
 
 import logger from './utils/logger.js';
 import { isSupportedMailTabUrl } from './utils/mail-urls.mjs';
+import { DEFAULT_SETTINGS, normalizeStoredSettings, validateSettingsPatch } from './utils/settings-validation.mjs';
 
 // State
 let offscreenDocumentCreated = false;
 let modelStatus = 'loading'; // 'loading' | 'ready' | 'error'
 let modelLoadProgress = 0;
-let settings = {
-  autoScan: true,
-  sensitivityThreshold: 0.7,
-  highlightLinks: true,
-  showTooltip: true,
-  theme: 'auto',
-  whitelist: ['github.com', 'google.com', 'microsoft.com', 'amazon.com', 'apple.com']
-};
+let settings = normalizeStoredSettings(DEFAULT_SETTINGS);
 
 const pendingInferenceCallbacks = new Map();
 
@@ -79,7 +73,8 @@ async function init() {
 }
 
 /**
- * Load settings from chrome.storage.sync
+ * Load non-sensitive preferences from sync and trusted senders from local.
+ * Migrate and remove whitelists saved by earlier versions in sync storage.
  */
 async function loadSettings() {
   return new Promise((resolve) => {
@@ -89,29 +84,43 @@ async function loadSettings() {
       'highlightLinks',
       'showTooltip',
       'theme',
-      'whitelist'
-    ], (result) => {
-      settings = {
-        autoScan: result?.autoScan ?? true,
-        sensitivityThreshold: result?.sensitivityThreshold ?? 0.7,
-        highlightLinks: result?.highlightLinks ?? true,
-        showTooltip: result?.showTooltip ?? true,
-        theme: result?.theme ?? 'auto',
-        whitelist: Array.isArray(result?.whitelist) ? result.whitelist : ['github.com', 'google.com', 'microsoft.com', 'amazon.com', 'apple.com']
-      };
-      resolve(settings);
+      'whitelist' // Read only to migrate and delete legacy synced data.
+    ], (synced) => {
+      chrome.storage.local.get('whitelist', (local) => {
+        // Prefer the local-only list (including a malformed one) over stale
+        // synced data, then validate all preferences before exposing them.
+        const hasLocalWhitelist = local?.whitelist !== undefined;
+        settings = normalizeStoredSettings({
+          ...synced,
+          ...(hasLocalWhitelist ? { whitelist: local.whitelist } : {})
+        });
+
+        if (Object.hasOwn(synced ?? {}, 'whitelist')) {
+          // Local data takes precedence. Delete the old synced copy only
+          // after the chosen whitelist has been written locally.
+          chrome.storage.local.set({ whitelist: settings.whitelist }, () => {
+            chrome.storage.sync.remove('whitelist', () => resolve(settings));
+          });
+        } else {
+          resolve(settings);
+        }
+      });
     });
   });
 }
 
 /**
- * Save settings to chrome.storage.sync
+ * Persist the trusted-sender whitelist locally, never in synced settings.
  */
 async function saveSettings(newSettings) {
   settings = { ...settings, ...newSettings };
+  const { whitelist, ...syncedSettings } = settings;
   return new Promise((resolve) => {
-    chrome.storage.sync.set(settings, () => {
-      resolve(settings);
+    chrome.storage.local.set({ whitelist }, () => {
+      chrome.storage.sync.set(syncedSettings, () => {
+        // Also clean up any whitelist synced by an older extension version.
+        chrome.storage.sync.remove('whitelist', () => resolve(settings));
+      });
     });
   });
 }
@@ -196,8 +205,14 @@ async function handleIncomingMessage(message, sender) {
       }
 
       try {
-        // Do not forward links, attachments, sender or arbitrary extra fields.
-        const result = await runInference({ text: message.payload.text });
+        // Forward the sender and links the model's reason generation needs, but
+        // nothing else: the body, subject, attachments, and any other field
+        // stay out of the offscreen document. Both are already bounded by
+        // validScanPayload above.
+        const payload = { text: message.payload.text };
+        if (message.payload.sender !== undefined) payload.sender = message.payload.sender;
+        if (message.payload.links !== undefined) payload.links = message.payload.links;
+        const result = await runInference(payload);
         return { success: true, result };
       } catch (error) {
         logger.error('Inference error:', error);
@@ -215,10 +230,9 @@ async function handleIncomingMessage(message, sender) {
       return { modelStatus, progress: modelLoadProgress, settings };
 
     case 'UPDATE_SETTINGS':
-      if (message.settings && Object.hasOwn(message.settings, 'whitelist') &&
-          (!Array.isArray(message.settings.whitelist) ||
-           !message.settings.whitelist.every((entry) => typeof entry === 'string'))) {
-        return { success: false, error: 'whitelist must be an array of strings' };
+      {
+        const error = validateSettingsPatch(message.settings);
+        if (error) return { success: false, error };
       }
       await saveSettings(message.settings);
       broadcastSettingsUpdate();
@@ -244,10 +258,11 @@ async function handleIncomingMessage(message, sender) {
 
     case 'CLEAR_HISTORY': {
       if (chrome.storage?.local) {
-        // Every key in storage.local is private to this extension. Clear it
-        // completely so future locally cached scan data cannot survive a
-        // user's privacy reset; preferences are kept in storage.sync.
-        await chrome.storage.local.clear();
+        // Clear all locally cached scan data (including future cache keys),
+        // but preserve the local-only trusted-sender preference.
+        const localData = await chrome.storage.local.get(null);
+        const historyKeys = Object.keys(localData).filter(key => key !== 'whitelist');
+        if (historyKeys.length) await chrome.storage.local.remove(historyKeys);
       }
       return { success: true };
     }

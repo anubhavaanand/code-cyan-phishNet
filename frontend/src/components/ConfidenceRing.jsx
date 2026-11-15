@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 /**
  * ConfidenceRing — circular progress ring showing confidence percentage.
@@ -9,6 +9,16 @@ export function ConfidenceRing({ value, color = 'coral', size = 56, stroke = 5 }
   const circumference = 2 * Math.PI * radius;
   const pct = Math.round((value || 0) * 100);
   const offset = circumference - (pct / 100) * circumference;
+
+  // Start empty, then move to the target on the next frame. Without this the
+  // ring renders already-filled, so the transition has nothing to animate from
+  // and a new scan never visibly resets.
+  const [shown, setShown] = useState(circumference);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setShown(offset));
+    return () => cancelAnimationFrame(id);
+  }, [offset]);
 
   const colors = {
     coral: 'var(--pn-coral)',
@@ -38,7 +48,7 @@ export function ConfidenceRing({ value, color = 'coral', size = 56, stroke = 5 }
           stroke={colors[color] || colors.coral}
           strokeWidth={stroke}
           strokeDasharray={circumference}
-          strokeDashoffset={offset}
+          strokeDashoffset={shown}
           strokeLinecap="round"
           style={{
             transition: 'stroke-dashoffset 0.8s var(--pn-ease-out)',

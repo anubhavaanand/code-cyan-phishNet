@@ -31,6 +31,23 @@
     'hta','iso','img','lnk','jar','msi','ps1','reg','pif'
   ]);
 
+  // Scripts are common in legitimate mail — a developer sending a module, a
+  // config file — so a bare .js is not treated as dangerous on its own. It is
+  // still dangerous when it is disguised as a document (invoice.pdf.js), which
+  // the double-extension check below handles.
+  const SCRIPT_EXTENSIONS = new Set(['js', 'jse']);
+  const EXECUTABLE_EXTENSIONS = new Set(
+    [...DANGEROUS_EXTENSIONS].filter((e) => !SCRIPT_EXTENSIONS.has(e))
+  );
+
+  // Types that are safe to open, and therefore the ones worth disguising. Only
+  // a document type in front of a dangerous one is a deception.
+  const DOCUMENT_TYPES = new Set([
+    'pdf','doc','docx','xls','xlsx','ppt','pptx','txt','rtf','csv',
+    'jpg','jpeg','png','gif','bmp','webp','svg',
+    'zip','rar','7z','tar','gz'
+  ]);
+
   const CYRILLIC_REGEX = /\p{Script=Cyrillic}/u;
   const GREEK_REGEX   = /\p{Script=Greek}/u;
   const LATIN_REGEX   = /[a-zA-Z]/;
@@ -185,16 +202,131 @@
   function levenshteinDistance(a, b) { return damerauLevenshtein(a, b); }
 
   /**
+   * Punycode (RFC 3492) decode, for a single label.
+   * No punycode API is available in a content script — URL.domainToUnicode
+   * exists in Chrome but not in Firefox, and not in Node for tests — so this
+   * is the decoder. It only needs to handle real IDN labels; malformed input
+   * returns null rather than throwing.
+   */
+  const punycodeToUnicode = (() => {
+    const BASE = 36, TMIN = 1, TMAX = 26, SKEW = 38, DAMP = 700, INITIAL_BIAS = 72, INITIAL_N = 128;
+
+    const adapt = (delta, numPoints, firstTime) => {
+      let d = firstTime ? Math.floor(delta / DAMP) : delta >> 1;
+      d += Math.floor(d / numPoints);
+      let k = 0;
+      while (d > ((BASE - TMIN) * TMAX) >> 1) {
+        d = Math.floor(d / (BASE - TMIN));
+        k += BASE;
+      }
+      return k + Math.floor(((BASE - TMIN + 1) * d) / (d + SKEW));
+    };
+
+    const digitValue = (code) => {
+      if (code >= 48 && code <= 57) return code - 22;   // 0-9 -> 26-35
+      if (code >= 65 && code <= 90) return code - 65;   // A-Z -> 0-25
+      if (code >= 97 && code <= 122) return code - 97;  // a-z -> 0-25
+      return -1;
+    };
+
+    const decodeLabel = (input) => {
+      const basic = input.lastIndexOf('-');
+      const output = [];
+      for (let j = 0; j < basic; j++) output.push(input.charCodeAt(j));
+
+      let n = INITIAL_N, i = 0, bias = INITIAL_BIAS;
+      let idx = basic > 0 ? basic + 1 : 0;
+
+      while (idx < input.length) {
+        const oldi = i;
+        let w = 1;
+        for (let k = BASE; ; k += BASE) {
+          if (idx >= input.length) return null;
+          const digit = digitValue(input.charCodeAt(idx++));
+          if (digit < 0) return null;
+          i += digit * w;
+          const t = k <= bias ? TMIN : (k >= bias + TMAX ? TMAX : k - bias);
+          if (digit < t) break;
+          w *= BASE - t;
+        }
+        const outLen = output.length + 1;
+        bias = adapt(i - oldi, outLen, oldi === 0);
+        n += Math.floor(i / outLen);
+        i %= outLen;
+        output.splice(i, 0, n);
+        i++;
+      }
+      try {
+        return String.fromCodePoint(...output);
+      } catch {
+        return null;
+      }
+    };
+
+    return (domain) => {
+      const labels = String(domain || '').toLowerCase().split('.');
+      let changed = false;
+      const out = labels.map((label) => {
+        if (!label.startsWith('xn--')) return label;
+        const decoded = decodeLabel(label.slice(4));
+        if (decoded === null) return label;
+        changed = true;
+        return decoded;
+      });
+      return changed ? out.join('.') : null;
+    };
+  })();
+
+  /**
+   * Punycode is not inherently suspicious. Most of it is ordinary IDN —
+   * `xn--80ak6aa92e.com`, `xn--p1ai`, the Cyrillic TLD — and flagging every
+   * occurrence marked legitimate internationalised domains as phishing.
+   *
+   * A punycode label is only a homograph when what it decodes to is
+   * confusable with a brand, or when a brand sits in plain ASCII beside it
+   * in the same domain. Both are checked on the decoded form.
+   */
+  function punycodeSpoofsBrand(cleanDomain) {
+    if (!cleanDomain.includes('xn--')) return false;
+
+    const decoded = punycodeToUnicode(cleanDomain);
+    if (decoded === null) return true; // undecodable punycode is not something we can vouch for
+
+    const skeleton = (s) => {
+      let out = '';
+      const folded = s.toLowerCase().normalize('NFKC');
+      for (const ch of stripInvisible(folded)) out += CONFUSABLE_MAP.get(ch) || ch;
+      return out;
+    };
+
+    const decodedLabels = decoded.split('.');
+    const asciiLabels = cleanDomain.split('.').filter((l) => !l.startsWith('xn--'));
+
+    for (const brand of BRAND_SET) {
+      // decoded label folds onto a brand
+      for (const label of decodedLabels) {
+        if (label.startsWith('xn--')) continue;
+        if (skeleton(label) === brand && label !== brand) return true;
+      }
+      // brand in plain ASCII alongside a punycode label
+      if (asciiLabels.includes(brand) && decodedLabels.length > asciiLabels.length) return true;
+    }
+    return false;
+  }
+
+  /**
    * Mixed-script homograph detection (Latin + Cyrillic/Greek mixing,
    * punycode labels, or invisible characters).
    */
   function detectHomographAttack(str) {
     if (!str) return false;
     const s = String(str).toLowerCase();
-    if (s.includes('xn--')) return true;
     if (hasInvisible(s)) return true;
     const hasLatin = LATIN_REGEX.test(s);
-    return (hasLatin && CYRILLIC_REGEX.test(s)) || (hasLatin && GREEK_REGEX.test(s) && s.length > 4);
+    const mixedScript = (hasLatin && CYRILLIC_REGEX.test(s)) ||
+                        (hasLatin && GREEK_REGEX.test(s) && s.length > 4);
+    if (mixedScript) return true;
+    return punycodeSpoofsBrand(s);
   }
 
   /**
@@ -223,11 +355,17 @@
     const mainName = parts.length > 1 ? parts[parts.length - 2] : cleanDomain;
     const skelMain = skeleton(mainName);
     const skelDomain = skeleton(cleanDomain);
+    // Everything before the registrable label: the subdomain labels plus any
+    // multi-part suffix. A brand here is a deception; a brand inside a longer
+    // label is not.
+    const labelsBeforeTld = parts.slice(0, -1);
 
     for (const brand of BRAND_SET) {
-      // subdomain deception: brand appears anywhere but this isn't an official host
-      // (official hosts were already exempted above)
-      if (cleanDomain.includes(brand) && mainName !== brand) {
+      // subdomain deception: a brand used as a whole label somewhere other than
+      // the registrable name. Comparing labels rather than substrings is what
+      // separates github.evil.com (deceptive) from mygithub.io and
+      // notamazon.com (legitimate domains that merely contain the word).
+      if (mainName !== brand && labelsBeforeTld.some((l) => l === brand || skeleton(l) === brand)) {
         return { brand, type: 'subdomain_deception', reason: `Brand '${brand}' deceptive use in subdomain or domain` };
       }
       // typosquatting on skeleton forms with Damerau distance.
@@ -237,7 +375,13 @@
         if (dist === 0 && mainName !== brand) {
           return { brand, type: 'skeleton_spoof', reason: `Confusable characters spoofing '${brand}' (${mainName})` };
         }
-        if (dist === 1 || (dist === 2 && mainName.length >= 6)) {
+        // A brand bolted onto the front or back of another word is a compound
+        // (mygithub, githubtv, amazonian), not a typo of the brand. Those are
+        // ordinary names, and flagging them is the false positive this issue
+        // is about. Real typos — substitutions, transpositions, a single edit
+        // in the middle — still land below.
+        const compound = mainName.startsWith(brand) || mainName.endsWith(brand);
+        if (dist === 1 || (dist === 2 && mainName.length >= 6 && !compound)) {
           return { brand, type: 'typosquatting', reason: `Typosquatted lookalike domain for '${brand}' (${mainName})` };
         }
       }
@@ -261,12 +405,21 @@
       .trim()
       .replace(/[. ]+$/g, '');
     const doubleExtMatch = lowerName.match(/\.([a-z0-9]+)\.([a-z0-9]+)$/i);
-    if (doubleExtMatch && DANGEROUS_EXTENSIONS.has(doubleExtMatch[2])) {
+    // A deceptive double extension needs a document/media type in front of the
+    // dangerous one (invoice.pdf.exe). A compound name like app.min.js is not
+    // deception — `min` is not something anyone is tricked into opening — so it
+    // falls through to the plain extension check below.
+    if (doubleExtMatch &&
+        DOCUMENT_TYPES.has(doubleExtMatch[1]) &&
+        DANGEROUS_EXTENSIONS.has(doubleExtMatch[2])) {
       return { filename, dangerous: true, reason: `Deceptive double extension detected: .${doubleExtMatch[1]}.${doubleExtMatch[2]}` };
     }
     const extMatch = lowerName.match(/\.([a-z0-9]+)$/i);
-    if (extMatch && DANGEROUS_EXTENSIONS.has(extMatch[1])) {
+    if (extMatch && EXECUTABLE_EXTENSIONS.has(extMatch[1])) {
       return { filename, dangerous: true, reason: `Executable or script attachment: .${extMatch[1]}` };
+    }
+    if (extMatch && SCRIPT_EXTENSIONS.has(extMatch[1])) {
+      return { filename, dangerous: false, reason: `Script attachment: .${extMatch[1]}` };
     }
     return { filename, dangerous: false };
   }
@@ -389,8 +542,17 @@
     const sender = emailContent?.sender || {};
     const emailLinks = emailContent?.links || [];
     const emailAttachments = emailContent?.attachments || [];
-    const allLinks = [...emailLinks, ...links];
-    const allAttachments = [...emailAttachments, ...attachments];
+    // Callers pass emailContent as well as its links and attachments, so the
+    // same entry can arrive twice. De-duplicating by identity keeps each link
+    // and attachment counted once however the function is called.
+    const allLinks = [...emailLinks];
+    for (const link of links) {
+      if (!allLinks.includes(link)) allLinks.push(link);
+    }
+    const allAttachments = [...emailAttachments];
+    for (const att of attachments) {
+      if (!allAttachments.includes(att)) allAttachments.push(att);
+    }
 
     let urgencyScore = 0, senderTrustScore = 0, linkRiskScore = 0, attachmentRiskScore = 0;
     const reasons = [];
@@ -404,7 +566,16 @@
       'refund','tax','irs','government','legal','court'
     ];
     const fullText = `${subject} ${text}`.toLowerCase();
-    const foundUrgency = [...new Set(urgencyKeywords.filter(kw => fullText.includes(kw)))];
+    // Word-boundary match. `includes` fired `tax` on "taxi" and `account` on
+    // "accounting", inflating the urgency score on ordinary mail.
+    const foundUrgency = [...new Set(
+      urgencyKeywords.filter((kw) => {
+        if (!kw.includes(' ')) {
+          return new RegExp(`\\b${kw}\\b`, 'i').test(fullText);
+        }
+        return fullText.includes(kw);
+      })
+    )];
     if (foundUrgency.length > 0) {
       urgencyScore = Math.min(foundUrgency.length * 8, 40);
       reasons.push(`Urgency signals: ${foundUrgency.slice(0, 3).join(', ')}`);
@@ -435,6 +606,11 @@
           reasons.push(`Security persona from unverified domain: ${sender.email}`);
         }
       }
+
+      // Lookalike(45) + impersonation(34) + persona(25) can reach 104 against a
+      // documented cap of 45. The other three sub-scores are clamped; this one
+      // was not, so the Threat Inspector drew a bar past its own maximum.
+      senderTrustScore = Math.min(senderTrustScore, 45);
     }
 
     // ---- 3. link inspection ----
@@ -502,7 +678,9 @@
     }
 
     // ---- 5. content-level signals ----
-    if (text.includes('<form') || text.includes('<input')) {
+    // `text` is textContent, where tags never appear, so testing the text for
+    // '<form' could never fire. The content script counts the elements instead.
+    if (emailContent?.hasFormElements) {
       reasons.push('Interactive form elements inside email');
     }
     if (hasInvisible(text)) {

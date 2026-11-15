@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Icon } from './Icon';
 
 /**
  * Toast — brief notification that slides in and auto-dismisses.
+ *
+ * `onDismiss` is optional. Callers that manage their own timeout can omit it;
+ * passing one gives the toast a default lifetime.
  */
-export function Toast({ message, type = 'info', onDismiss }) {
+export function Toast({ message, type = 'info', onDismiss, duration = 4000 }) {
   const colors = {
     info: { bg: 'var(--pn-teal-pale)', fg: 'var(--pn-teal-dark)', icon: 'star' },
     success: { bg: 'var(--pn-green-pale)', fg: 'var(--pn-green-dark)', icon: 'shield' },
@@ -12,8 +15,16 @@ export function Toast({ message, type = 'info', onDismiss }) {
   };
   const c = colors[type] || colors.info;
 
+  useEffect(() => {
+    if (!onDismiss || !duration) return undefined;
+    const t = setTimeout(onDismiss, duration);
+    return () => clearTimeout(t);
+  }, [onDismiss, duration]);
+
   return (
     <div
+      role="status"
+      aria-live="polite"
       style={{
         position: 'fixed',
         bottom: 16,

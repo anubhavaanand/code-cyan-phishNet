@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getSettings, updateSettings, onSettingsUpdate } from '@/lib/messaging';
 import { DEFAULT_SETTINGS } from '@/lib/constants';
 
@@ -10,6 +10,10 @@ import { DEFAULT_SETTINGS } from '@/lib/constants';
 export function useSettings() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
+
+  // Mirror of settings for use inside callbacks without adding a dependency.
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   useEffect(() => {
     let mounted = true;
@@ -29,11 +33,12 @@ export function useSettings() {
   }, []);
 
   const update = useCallback(async (key, value) => {
-    setSettings((prev) => {
-      const next = { ...prev, [key]: value };
-      updateSettings(next);
-      return next;
-    });
+    // Build from the latest state, then persist outside the updater. React may
+    // call an updater more than once (StrictMode), and a network write inside it
+    // would be issued twice.
+    const next = { ...settingsRef.current, [key]: value };
+    setSettings(next);
+    await updateSettings(next);
   }, []);
 
   return { settings, update, loaded };

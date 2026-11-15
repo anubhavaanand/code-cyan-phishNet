@@ -32,7 +32,7 @@ Powered by local DistilBERT & ONNX Web Runtime — no cloud uploads, zero teleme
 
 * **🛡️ Inline Verdict Badges** — Instant `Safe`, `Phishing`, or `Uncertain` status right beside the sender.
 * **🔍 Threat Inspector** — Deep forensics: domain trust, urgency scoring, and attachment risk (`.pdf.exe`).
-* **🔗 Spoofed Link Detection** — Detects Cyrillic homographs, punycode, and Levenshtein typosquatting across 25+ major brands.
+* **🔗 Spoofed Link Detection** — Detects Cyrillic homographs, punycode, and Levenshtein typosquatting across 25 major brands.
 * **⭐ Trusted Whitelist** — Instant pass-through for verified contacts and domains.
 * **🌙 Dark-Mode UI** — Native glassmorphic styling matching Gmail and Outlook dark themes.
 
@@ -57,7 +57,7 @@ flowchart LR
     C --> B --> D["🏷️ Inline Verdict Badge<br/>+ Threat Inspector"]
 ```
 
-* **Classifier**: Quantized int8 [`distilbert_v2.4.1`](https://huggingface.co/cybersectony/phishing-email-detection-distilbert-v2.4.1) running in an isolated offscreen document via Transformers.js v3.
+* **Classifier**: Quantized int8 [`distilbert_v2.4.1`](https://huggingface.co/onnx-community/phishing-email-detection-distilbert_v2.4.1-ONNX) running in an isolated offscreen document via Transformers.js v3.
 * **Fallback Safety**: If WebAssembly or the model fails to load, rule-based heuristics seamlessly take over.
 
 ---
@@ -69,7 +69,7 @@ flowchart LR
 | **Inference Time** | ~200 ms (DistilBERT) · ~0.25 ms (Heuristic Fallback) |
 | **Extension Footprint** | ~70 KB core code · 100% idle memory coalesced |
 | **Compatibility** | Desktop Chromium (Gmail, Outlook.com, Office 365 OWA) |
-| **Testing** | 213 tests (`npm test`) — `node --test` for the extension core, Vitest for the React UI — plus GitHub Actions CI |
+| **Testing** | Full suite (`npm test`) — `node --test` for the extension core, Vitest for the React UI — plus GitHub Actions CI |
 
 ---
 
