@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Button, Badge, TabBar, EmptyState, Icon, LogoMark } from '@/components';
+import { Button, Badge, TabBar, EmptyState, Icon, LogoMark, Toast } from '@/components';
 
 describe('Button', () => {
   it('renders its children', () => {
@@ -61,6 +61,33 @@ describe('Badge', () => {
   it('falls back to uncertain for an unknown label', () => {
     render(<Badge label="something_else" confidence={0.5} />);
     expect(screen.getByText(/Uncertain/)).toBeInTheDocument();
+  });
+});
+
+describe('Toast', () => {
+  it('announces itself to assistive tech', () => {
+    render(<Toast message="History cleared!" />);
+    const toast = screen.getByRole('status');
+    expect(toast).toHaveAttribute('aria-live', 'polite');
+    expect(toast).toHaveTextContent('History cleared!');
+  });
+
+  it('auto-dismisses after the duration when onDismiss is given', async () => {
+    vi.useFakeTimers();
+    const onDismiss = vi.fn();
+    render(<Toast message="Saved" onDismiss={onDismiss} duration={1000} />);
+    expect(onDismiss).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it('never dismisses itself without onDismiss', () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<Toast message="Sticky" />);
+    vi.advanceTimersByTime(60000);
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    vi.useRealTimers();
   });
 });
 
