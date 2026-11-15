@@ -6,6 +6,7 @@
 import { pipeline, env } from '../vendor/transformers.min.js';
 import logger from './utils/logger.js';
 import { truncateText } from './utils/truncate-text.mjs';
+import { normalizePredictions, labelSpaceSize } from './utils/model-labels.mjs';
 // Side-effect import: installs globalThis.PhishNet (shared v1.1 detection
 // engine — skeletoning, Damerau typosquats, hardened URL checks)
 import './utils/heuristic-detector.js';
@@ -39,15 +40,7 @@ const MODEL_OPTIONS = {
   revision: MODEL_REVISION
 };
 
-// Label mapping from model output (based on cybersectony/phishing-email-detection-distilbert_v2.4.1)
-const LABEL_MAP = {
-  'LABEL_0': 'legitimate_email',
-  'LABEL_1': 'phishing_email',
-  'LABEL_2': 'legitimate_url',
-  'LABEL_3': 'phishing_url'
-};
-
-// Reverse mapping for reasons
+// Human-readable reasons for each canonical label.
 const LABEL_REASONS = {
   'legitimate_email': 'Content appears legitimate',
   'phishing_email': 'Content matches phishing patterns',
@@ -134,22 +127,21 @@ async function runInference(text, settings = {}) {
     // Truncate text to 512 tokens (approximate: 1 token ≈ 4 chars)
     const truncatedText = truncateText(text, 512);
 
-    // Run classification
-    const results = await classifier(truncatedText, {
-      topk: 4 // Get all class probabilities
-    });
+    // Run classification. Ask for every class the checkpoint declares rather
+    // than a hard-coded 4: a binary model would otherwise have classes
+    // silently dropped, and the remaining scores would be reported as the
+    // whole picture.
+    const results = await classifier(truncatedText, { topk: labelSpaceSize(classifier) });
 
     const processingTime = Math.round(performance.now() - startTime);
 
-    // Process results
-    const predictions = Array.isArray(results) ? results : [results];
-
-    // Sort by score descending
-    predictions.sort((a, b) => b.score - a.score);
+    // Process results, translating whatever the checkpoint calls its classes
+    // onto our four canonical names.
+    const predictions = normalizePredictions(results);
 
     const topPrediction = predictions[0];
-    const label = LABEL_MAP[topPrediction.label] || 'uncertain';
-    const confidence = topPrediction.score;
+    const label = topPrediction?.label || 'uncertain';
+    const confidence = topPrediction?.score || 0;
 
     // Generate reasons based on predictions
     const reasons = generateReasons(predictions, text, settings);
@@ -160,7 +152,7 @@ async function runInference(text, settings = {}) {
       reasons,
       processingTime,
       allScores: predictions.reduce((acc, p) => {
-        acc[LABEL_MAP[p.label] || p.label] = p.score;
+        acc[p.label] = p.score;
         return acc;
       }, {})
     };
@@ -187,8 +179,8 @@ function generateReasons(predictions, text = '', settings = {}) {
   const reasons = [];
 
   // Top prediction reason
-  const topLabel = LABEL_MAP[predictions[0]?.label] || 'uncertain';
-  if (LABEL_REASONS[topLabel]) {
+  const topLabel = predictions[0]?.label;
+  if (topLabel && LABEL_REASONS[topLabel]) {
     reasons.push(LABEL_REASONS[topLabel]);
   }
 
