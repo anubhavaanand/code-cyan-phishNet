@@ -90,7 +90,7 @@ PhishNet protects users from phishing emails. We assume:
 ### Model Supply Chain
 - Model: `onnx-community/phishing-email-detection-distilbert_v2.4.1-ONNX`
 - Source: Hugging Face Hub → jsDelivr CDN
-- Verification: Transformers.js validates model integrity
+- Integrity: model files are cached locally via IndexedDB; no hash pinning is performed (see PRIVACY_POLICY.md for local-only model cache)
 - Alternative: Self-host model (see DEPLOYMENT.md)
 
 ## Security Best Practices for Contributors
@@ -127,7 +127,6 @@ If a vulnerability is discovered in production:
 - [ ] CSP unchanged or tightened
 - [ ] No inline scripts added
 - [ ] No email content in logs/storage
-- [ ] Model integrity verified
 - [ ] Settings schema unchanged
 - [ ] Offscreen document reasons minimal
 - [ ] Content script matches unchanged
