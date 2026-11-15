@@ -102,7 +102,8 @@ jobs:
             const allowed = {
               'script-src': [S('self'), S('wasm-unsafe-eval'), S('wasm-eval'), S('inline-speculation-rules'), S('none')],
               'object-src': [S('self'), S('none')],
-              'worker-src': [S('self'), S('none')]
+              'worker-src': [S('self'), S('none')],
+              'style-src': [S('self'), S('unsafe-inline'), S('none')]
             };
             let errors = [];
             for (const d of csp.split(';').map(x => x.trim().split(/\s+/)).filter(x => x.length)) {
