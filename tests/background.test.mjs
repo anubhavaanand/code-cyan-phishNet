@@ -57,6 +57,19 @@ describe('GET_STATUS / GET_SETTINGS', () => {
 });
 
 describe('UPDATE_SETTINGS', () => {
+  it('normalizes invalid thresholds before persisting them', async () => {
+    for (const [input, expected] of [
+      [-3, 0], [4, 1], ['0.42', 0.42], ['2', 1],
+      ['not-a-number', 0.7], ['', 0.7], [null, 0.7], [Infinity, 0.7], [{}, 0.7]
+    ]) {
+      const res = await send({ type: 'UPDATE_SETTINGS', settings: { sensitivityThreshold: input } });
+      assert.equal(res.success, true);
+      assert.equal(res.settings.sensitivityThreshold, expected);
+      assert.equal(mock.syncStore.sensitivityThreshold, expected);
+    }
+    await send({ type: 'UPDATE_SETTINGS', settings: { sensitivityThreshold: 0.7 } });
+  });
+
   it('rejects malformed whitelist updates without corrupting settings or storage', async () => {
     const before = (await send({ type: 'GET_SETTINGS' })).whitelist;
     const storedBefore = mock.localStore.whitelist;
