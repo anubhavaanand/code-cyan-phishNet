@@ -60,6 +60,31 @@ describe('homograph detection', () => {
     assert.equal(typeof detectHomographAttack(''), 'boolean');
     assert.equal(typeof detectHomographAttack('localhost'), 'boolean');
   });
+
+  test('does not flag legitimate internationalised domains', () => {
+    // Punycode is ordinary IDN. Flagging every xn-- label marked real
+    // internationalised domains as phishing.
+    for (const domain of [
+      'xn--bcher-kva.de',        // bücher.de
+      'xn--p1ai',                // рф, the Cyrillic TLD
+      'xn--e1afmkfd.xn--p1ai',   // пример.рф
+      'xn--n3h.com',             // ☃.com
+      'xn--fiqs8s',              // 中国
+      'xn--80ak6aa92e.com',
+    ]) {
+      assert.equal(detectHomographAttack(domain), false, `${domain} must not be flagged`);
+    }
+  });
+
+  test('flags punycode that decodes to a brand lookalike', () => {
+    // xn--pypal-4ve decodes to pаypal with a Cyrillic а.
+    assert.equal(detectHomographAttack('xn--pypal-4ve.com'), true);
+  });
+
+  test('still flags mixed-script domains without punycode', () => {
+    assert.equal(detectHomographAttack('pаypal.com'), true);
+    assert.equal(detectHomographAttack('microsоft.com'), true);
+  });
 });
 
 describe('brand lookalike detection', () => {
