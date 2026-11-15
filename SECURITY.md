@@ -70,11 +70,11 @@ PhishNet protects users from phishing emails. We assume:
 ### CSP Configuration
 ```json
 "content_security_policy": {
-  "extension_pages": "script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; object-src 'self'; worker-src 'self' blob:"
+  "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
 }
 ```
 - `'wasm-unsafe-eval'` required for ONNX Runtime WebAssembly
-- CDN allowlisted for Transformers.js library only
+- No CDN is allowlisted in the CSP; all network access is governed by `host_permissions`
 - No inline scripts, no eval() in our code
 
 ### Permissions Justification
