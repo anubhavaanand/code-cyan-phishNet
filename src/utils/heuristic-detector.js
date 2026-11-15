@@ -516,8 +516,17 @@
     const sender = emailContent?.sender || {};
     const emailLinks = emailContent?.links || [];
     const emailAttachments = emailContent?.attachments || [];
-    const allLinks = [...emailLinks, ...links];
-    const allAttachments = [...emailAttachments, ...attachments];
+    // Callers pass emailContent as well as its links and attachments, so the
+    // same entry can arrive twice. De-duplicating by identity keeps each link
+    // and attachment counted once however the function is called.
+    const allLinks = [...emailLinks];
+    for (const link of links) {
+      if (!allLinks.includes(link)) allLinks.push(link);
+    }
+    const allAttachments = [...emailAttachments];
+    for (const att of attachments) {
+      if (!allAttachments.includes(att)) allAttachments.push(att);
+    }
 
     let urgencyScore = 0, senderTrustScore = 0, linkRiskScore = 0, attachmentRiskScore = 0;
     const reasons = [];
