@@ -75,7 +75,7 @@ export function TrustedTab({ whitelist, onUpdate }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
           {whitelist.map((entry, i) => (
             <div
-              key={entry}
+              key={`${entry}-${i}`}
               style={{
                 display: 'flex',
                 alignItems: 'center',
