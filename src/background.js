@@ -19,6 +19,13 @@ let settings = {
   whitelist: ['github.com', 'google.com', 'microsoft.com', 'amazon.com', 'apple.com']
 };
 
+// A malformed stored preference must not disable phishing classification.
+function normalizeSensitivityThreshold(value) {
+  if (typeof value !== 'number' && typeof value !== 'string') return 0.7;
+  const parsed = typeof value === 'string' && !value.trim() ? NaN : Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0.7;
+}
+
 const pendingInferenceCallbacks = new Map();
 
 // Reject oversized scan messages before copying them to the offscreen document.
@@ -97,7 +104,7 @@ async function loadSettings() {
         const legacyWhitelist = Array.isArray(synced?.whitelist) ? synced.whitelist : null;
         settings = {
           autoScan: synced?.autoScan ?? true,
-          sensitivityThreshold: synced?.sensitivityThreshold ?? 0.7,
+          sensitivityThreshold: normalizeSensitivityThreshold(synced?.sensitivityThreshold),
           highlightLinks: synced?.highlightLinks ?? true,
           showTooltip: synced?.showTooltip ?? true,
           theme: synced?.theme ?? 'auto',
@@ -124,6 +131,7 @@ async function loadSettings() {
  */
 async function saveSettings(newSettings) {
   settings = { ...settings, ...newSettings };
+  settings.sensitivityThreshold = normalizeSensitivityThreshold(settings.sensitivityThreshold);
   const { whitelist, ...syncedSettings } = settings;
   return new Promise((resolve) => {
     chrome.storage.local.set({ whitelist }, () => {
