@@ -252,6 +252,18 @@ describe('URL analysis', () => {
     );
   });
 
+  test('flags interactive form elements reported by the content script', () => {
+    const base = {
+      subject: 'Hi', text: 'Please review the attached', sender: {},
+      links: [], attachments: []
+    };
+    assert.deepEqual(heuristicDetect(base).reasons, []);
+    assert.ok(
+      heuristicDetect({ ...base, hasFormElements: true }).reasons
+        .some((r) => /form elements/i.test(r))
+    );
+  });
+
   test('flags high-abuse TLDs', () => {
     assert.equal(isUrlSuspicious('http://paypal-login.tk/verify'), true);
     assert.equal(isUrlSuspicious('https://microsoft-support.xyz/update'), true);

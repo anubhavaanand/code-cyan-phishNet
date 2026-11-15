@@ -652,7 +652,9 @@
     }
 
     // ---- 5. content-level signals ----
-    if (text.includes('<form') || text.includes('<input')) {
+    // `text` is textContent, where tags never appear, so testing the text for
+    // '<form' could never fire. The content script counts the elements instead.
+    if (emailContent?.hasFormElements) {
       reasons.push('Interactive form elements inside email');
     }
     if (hasInvisible(text)) {

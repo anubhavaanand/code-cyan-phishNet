@@ -382,6 +382,16 @@
     // Extract attachments
     const attachments = extractAttachments(element);
 
+    // Interactive form elements are a phishing signal, but the detector only
+    // receives textContent, where tags never appear. Count them here and pass
+    // a boolean rather than testing the text for '<form'.
+    let hasFormElements = false;
+    try {
+      hasFormElements = !!bodyEl.querySelector?.('form, input, select, textarea');
+    } catch (e) {
+      hasFormElements = false;
+    }
+
     const fullText = `${subject}\n\n${bodyText}`.trim();
 
     return {
@@ -390,6 +400,7 @@
       body: bodyText,
       links,
       attachments,
+      hasFormElements,
       sender: {
         name: senderName,
         email: senderEmail,
