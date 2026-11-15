@@ -722,9 +722,16 @@ function makeMiniStage(canvasId, { camZ = 5, setup, spin = 0.15 } = {}) {
     renderer.render(scene, camera);
   }
   function start() {
-    if (running || prefersReduced) return;
+    if (running) return;
     init();
     if (!inited) return;
+    // Reduced motion: render a single frame so the canvas is not blank, then
+    // stop. Returning before init() left the canvas empty for these users.
+    if (prefersReduced) {
+      update(0, 0);
+      renderer.render(scene, camera);
+      return;
+    }
     running = true;
     clock.start();
     raf = requestAnimationFrame(tick);
