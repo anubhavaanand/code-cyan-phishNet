@@ -136,6 +136,32 @@ describe('content security policy', () => {
   });
 });
 
+describe('vendored three.js', () => {
+  test('the vendored bundle is r160 and matches its recorded hash', () => {
+    const src = read('docs/vendor/three.module.js');
+    const rev = src.match(/REVISION\s*=\s*['\"]([^'\"]+)/);
+    assert.ok(rev, 'could not read the three.js revision');
+    assert.equal(rev[1], '160');
+
+    const crypto = require('node:crypto');
+    const hash = crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'docs/vendor/three.module.js'))).digest('hex');
+    assert.equal(hash, '76dea8151bc9352aef3528b4262e249b2604f62543828328db978d060d61a495');
+  });
+
+  test('VENDOR.md records the pin and the update path', () => {
+    const v = read('docs/vendor/VENDOR.md');
+    assert.match(v, /r160/);
+    assert.match(v, /76dea8151bc9352aef3528b4262e249b2604f62543828328db978d060d61a495/);
+    assert.match(v, /scripts\/update-three\.sh/);
+  });
+
+  test('the update script exists and refuses split builds', () => {
+    const script = read('scripts/update-three.sh');
+    assert.match(script, /three\.core\.js/);
+    assert.match(script, /Refusing to install automatically/);
+  });
+});
+
 describe('vendored dependencies', () => {
   // The bundles are checked in and loaded from the extension origin under a
   // strict CSP, so nothing in package.json records them. VENDOR.md is that
