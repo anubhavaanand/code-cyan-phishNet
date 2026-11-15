@@ -50,9 +50,9 @@
    */
   function safeQuery(element, selectors, context = 'Element') {
     if (!element) return null;
-    
+
     const selectorList = Array.isArray(selectors) ? selectors : [selectors];
-    
+
     for (const selector of selectorList) {
       try {
         const found = element.querySelector(selector);
@@ -60,6 +60,14 @@
       } catch (e) {
         logger.debug(`${context}: selector "${selector}" failed:`, e.message);
       }
+    }
+
+    // Every selector in the chain missed. Gmail and Outlook rename their
+    // classes without notice, and a silent null here reads as "no such data"
+    // rather than "the page changed". Without this the content script keeps
+    // running, finds nothing, and the scan silently degrades.
+    if (selectorList.length) {
+      logger.warn(`${context}: no selector matched (${selectorList.length} tried)`);
     }
     return null;
   }
