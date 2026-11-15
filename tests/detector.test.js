@@ -319,6 +319,17 @@ describe('attachment analysis', () => {
     assert.equal(analyzeAttachment('Document.docx.vbs').dangerous, true);
   });
 
+  test('a compound name is not a deceptive double extension', () => {
+    // `min` is not a document type, so app.min.js is a normal compound name,
+    // not an attempt to disguise an executable.
+    const a = analyzeAttachment('app.min.js');
+    assert.equal(a.dangerous, true, 'a .js attachment is still dangerous');
+    assert.doesNotMatch(a.reason, /double extension/i);
+    assert.match(a.reason, /script attachment/i);
+
+    assert.doesNotMatch(analyzeAttachment('bundle.min.js').reason, /double extension/i);
+  });
+
   test('flags directly executable extensions', () => {
     assert.equal(analyzeAttachment('payment_receipt.iso').dangerous, true);
     assert.equal(analyzeAttachment('runme.scr').dangerous, true);

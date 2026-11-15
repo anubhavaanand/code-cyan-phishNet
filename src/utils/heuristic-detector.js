@@ -31,6 +31,14 @@
     'hta','iso','img','lnk','jar','msi','ps1','reg','pif'
   ]);
 
+  // Types that are safe to open, and therefore the ones worth disguising. Only
+  // a document type in front of a dangerous one is a deception.
+  const DOCUMENT_TYPES = new Set([
+    'pdf','doc','docx','xls','xlsx','ppt','pptx','txt','rtf','csv',
+    'jpg','jpeg','png','gif','bmp','webp','svg',
+    'zip','rar','7z','tar','gz'
+  ]);
+
   const CYRILLIC_REGEX = /\p{Script=Cyrillic}/u;
   const GREEK_REGEX   = /\p{Script=Greek}/u;
   const LATIN_REGEX   = /[a-zA-Z]/;
@@ -388,7 +396,13 @@
       .trim()
       .replace(/[. ]+$/g, '');
     const doubleExtMatch = lowerName.match(/\.([a-z0-9]+)\.([a-z0-9]+)$/i);
-    if (doubleExtMatch && DANGEROUS_EXTENSIONS.has(doubleExtMatch[2])) {
+    // A deceptive double extension needs a document/media type in front of the
+    // dangerous one (invoice.pdf.exe). A compound name like app.min.js is not
+    // deception — `min` is not something anyone is tricked into opening — so it
+    // falls through to the plain extension check below.
+    if (doubleExtMatch &&
+        DOCUMENT_TYPES.has(doubleExtMatch[1]) &&
+        DANGEROUS_EXTENSIONS.has(doubleExtMatch[2])) {
       return { filename, dangerous: true, reason: `Deceptive double extension detected: .${doubleExtMatch[1]}.${doubleExtMatch[2]}` };
     }
     const extMatch = lowerName.match(/\.([a-z0-9]+)$/i);
