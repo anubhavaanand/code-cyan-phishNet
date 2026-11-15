@@ -307,7 +307,11 @@ jobs:
     name: Package Extension
     runs-on: ubuntu-24.04
     needs: [lint, validate, test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Build artifacts on PRs too, so a reviewer can load the extension rather
+    # than trusting the diff. PR runs keep them briefly; main keeps them longer.
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -387,4 +391,4 @@ jobs:
           path: |
             phishnet-v${{ steps.version.outputs.version }}.zip
             phishnet-v1.0.0-firefox.zip
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && '30' || '7' }}
