@@ -389,12 +389,16 @@ function runInference(emailData) {
  * Broadcast settings update to all tabs
  */
 function broadcastSettingsUpdate() {
+  // Tab content scripts only need display/scanning preferences from this
+  // unsolicited notification; keep the private trusted-sender list local.
+  const publicSettings = { ...settings };
+  delete publicSettings.whitelist;
   chrome.tabs.query({}, (tabs) => {
     tabs.forEach(tab => {
       if (tab.id) {
         chrome.tabs.sendMessage(tab.id, {
           type: 'SETTINGS_UPDATE',
-          payload: settings
+          payload: publicSettings
         }).catch(() => {});
       }
     });
