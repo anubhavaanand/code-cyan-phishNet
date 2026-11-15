@@ -436,6 +436,27 @@ describe('heuristicDetect — classification', () => {
     assert.equal(result.links[2].suspicious, false);
   });
 
+  test('clamps every sub-score to its documented cap', () => {
+    // A maximally hostile message: lookalike(45) + impersonation(34) + persona(25)
+    // would reach 104 against a documented cap of 45.
+    const r = heuristicDetect({
+      subject: 'Verify your account',
+      text: 'Act now, limited time',
+      sender: {
+        name: 'PayPal Security',
+        email: 'security@paypa1-secure.tk',
+        domain: 'paypa1-secure.tk'
+      },
+      links: [{ href: 'http://paypa1-secure.tk/login' }],
+      attachments: [{ name: 'invoice.pdf.exe' }]
+    });
+    const s = r.signals;
+    assert.ok(s.senderTrustScore <= 45, `trust ${s.senderTrustScore} over cap`);
+    assert.ok(s.urgencyScore <= 40, `urgency ${s.urgencyScore} over cap`);
+    assert.ok(s.linkRiskScore <= 45, `links ${s.linkRiskScore} over cap`);
+    assert.ok(s.attachmentRiskScore <= 50, `attachments ${s.attachmentRiskScore} over cap`);
+  });
+
   test('flags credential phishing with urgency and a bad link', () => {
     const result = heuristicDetect({
       subject: 'URGENT: Your Account Will Be Closed!',
