@@ -9,14 +9,15 @@ export const DEFAULT_SETTINGS = Object.freeze({
 });
 
 const booleanSettings = new Set(['autoScan', 'highlightLinks', 'showTooltip']);
-const allowedThemes = new Set(['auto', 'aloe', 'graphite', 'dusk', 'light', 'dark']);
+// Chrome and Firefox expose different theme choices to their respective popups.
+const allowedThemes = new Set(['auto', 'light', 'dark']);
 
-function isValidSetting(key, value) {
+function isValidSetting(key, value, themes = allowedThemes) {
   if (booleanSettings.has(key)) return typeof value === 'boolean';
   if (key === 'sensitivityThreshold') {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
   }
-  if (key === 'theme') return allowedThemes.has(value);
+  if (key === 'theme') return themes.has(value);
   if (key === 'whitelist') {
     return Array.isArray(value) && value.every(
       (entry) => typeof entry === 'string' && entry.trim().length > 0
@@ -25,13 +26,13 @@ function isValidSetting(key, value) {
   return false;
 }
 
-export function validateSettingsPatch(patch) {
+export function validateSettingsPatch(patch, themes = allowedThemes) {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
     return 'settings must be an object';
   }
   for (const [key, value] of Object.entries(patch)) {
     if (!Object.hasOwn(DEFAULT_SETTINGS, key)) return `Unknown setting: ${key}`;
-    if (!isValidSetting(key, value)) return `Invalid ${key} setting`;
+    if (!isValidSetting(key, value, themes)) return `Invalid ${key} setting`;
   }
   return null;
 }
