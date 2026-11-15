@@ -32,7 +32,7 @@ Powered by local DistilBERT & ONNX Web Runtime — no cloud uploads, zero teleme
 
 * **🛡️ Inline Verdict Badges** — Instant `Safe`, `Phishing`, or `Uncertain` status right beside the sender.
 * **🔍 Threat Inspector** — Deep forensics: domain trust, urgency scoring, and attachment risk (`.pdf.exe`).
-* **🔗 Spoofed Link Detection** — Detects Cyrillic homographs, punycode, and Levenshtein typosquatting across 25+ major brands.
+* **🔗 Spoofed Link Detection** — Detects Cyrillic homographs, punycode, and Levenshtein typosquatting across 25 major brands.
 * **⭐ Trusted Whitelist** — Instant pass-through for verified contacts and domains.
 * **🌙 Dark-Mode UI** — Native glassmorphic styling matching Gmail and Outlook dark themes.
 
@@ -69,7 +69,7 @@ flowchart LR
 | **Inference Time** | ~200 ms (DistilBERT) · ~0.25 ms (Heuristic Fallback) |
 | **Extension Footprint** | ~70 KB core code · 100% idle memory coalesced |
 | **Compatibility** | Desktop Chromium (Gmail, Outlook.com, Office 365 OWA) |
-| **Testing** | 213 tests (`npm test`) — `node --test` for the extension core, Vitest for the React UI — plus GitHub Actions CI |
+| **Testing** | 283 tests (`npm test`) — `node --test` for the extension core, Vitest for the React UI — plus GitHub Actions CI |
 
 ---
 
