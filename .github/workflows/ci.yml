@@ -256,6 +256,33 @@ jobs:
           done
           echo "✅ All icons have correct dimensions"
 
+      # Firefox ships a different manifest and a different background script, so
+      # the Chrome checks above would pass a broken Gecko build. Building it here
+      # (rather than only in the post-merge package job) means a PR that breaks
+      # Firefox fails before it merges.
+      - name: Build Firefox package
+        run: ./build-firefox.sh
+
+      - name: Verify Firefox package
+        run: |
+          test -f phishnet-v1.0.0-firefox.zip || { echo "❌ firefox zip missing"; exit 1; }
+          unzip -l phishnet-v1.0.0-firefox.zip | grep -q "src/background-firefox.js" || {
+            echo "❌ firefox zip is missing the event-page background"; exit 1;
+          }
+          if unzip -l phishnet-v1.0.0-firefox.zip | grep -q "src/background.js"; then
+            echo "❌ firefox zip still contains the Chrome service worker"; exit 1
+          fi
+          unzip -p phishnet-v1.0.0-firefox.zip manifest.json | grep -q "browser_specific_settings" || {
+            echo "❌ firefox manifest is missing browser_specific_settings"; exit 1;
+          }
+          if unzip -p phishnet-v1.0.0-firefox.zip manifest.json | grep -q '"offscreen"'; then
+            echo "❌ firefox manifest still requests the offscreen permission"; exit 1
+          fi
+          if unzip -l phishnet-v1.0.0-firefox.zip | grep -q "public/test-emails.html"; then
+            echo "❌ dev playground shipped in the firefox zip"; exit 1
+          fi
+          echo "✅ firefox package is valid"
+
   test:
     name: Unit Tests
     runs-on: ubuntu-24.04
@@ -328,9 +355,36 @@ jobs:
           done
           echo "✅ packaged zip contains every page the manifest references"
 
+      - name: Build Firefox package
+        run: ./build-firefox.sh
+
+      - name: Verify Firefox package
+        run: |
+          # Firefox ships a different manifest and a different background script,
+          # so a Chrome-only check would pass a broken Gecko build.
+          test -f phishnet-v1.0.0-firefox.zip || { echo "❌ firefox zip missing"; exit 1; }
+          unzip -l phishnet-v1.0.0-firefox.zip | grep -q "src/background-firefox.js" || {
+            echo "❌ firefox zip is missing the event-page background"; exit 1;
+          }
+          unzip -l phishnet-v1.0.0-firefox.zip | grep -q "src/background.js" && {
+            echo "❌ firefox zip still contains the Chrome service worker"; exit 1;
+          } || true
+          unzip -p phishnet-v1.0.0-firefox.zip manifest.json | grep -q "browser_specific_settings" || {
+            echo "❌ firefox manifest is missing browser_specific_settings"; exit 1;
+          }
+          unzip -p phishnet-v1.0.0-firefox.zip manifest.json | grep -q '"offscreen"' && {
+            echo "❌ firefox manifest still requests the offscreen permission"; exit 1;
+          } || true
+          unzip -l phishnet-v1.0.0-firefox.zip | grep -q "public/test-emails.html" && {
+            echo "❌ dev playground shipped in the firefox zip"; exit 1;
+          } || true
+          echo "✅ firefox package is valid"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: phishnet-extension
-          path: "phishnet-v${{ steps.version.outputs.version }}.zip"
+          path: |
+            phishnet-v${{ steps.version.outputs.version }}.zip
+            phishnet-v1.0.0-firefox.zip
           retention-days: 30
