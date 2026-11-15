@@ -74,6 +74,6 @@ Updates will be posted to the GitHub repository. Continued use after changes con
 - **Email**: your.email@example.com
 
 ## Compliance
-- **GDPR**: No personal data processed → no GDPR obligations
-- **CCPA**: No sale of personal information → no CCPA obligations
+- **GDPR**: PhishNet processes personal data (email subject lines, sender addresses, and classification results) locally on your device for phishing detection. This local processing is still processing under GDPR, but no personal data is transmitted or stored externally beyond your device's local storage. You can clear your scan history at any time from the Options page or by uninstalling the extension.
+- **CCPA**: PhishNet does not sell personal information. Subject lines, sender addresses, and classification results are processed locally on your device and are never shared with third parties.
 - **Chrome Web Store**: Compliant with Developer Program Policies
