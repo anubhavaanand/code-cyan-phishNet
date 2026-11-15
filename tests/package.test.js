@@ -174,6 +174,22 @@ describe('vendored dependencies', () => {
   });
 });
 
+describe('model provenance', () => {
+  const OFFSCREEN = read('src/offscreen.js');
+
+  test('the model fetch is pinned to an exact revision', () => {
+    // Without a revision the fetch resolves to whatever `main` points at, so a
+    // mutated or replaced model would be loaded and executed here.
+    const match = OFFSCREEN.match(/const MODEL_REVISION = '([0-9a-f]{40})'/);
+    assert.ok(match, 'MODEL_REVISION must be a full 40-character commit sha');
+    assert.match(OFFSCREEN, /revision: MODEL_REVISION/);
+  });
+
+  test('the revision pin is documented as deliberate', () => {
+    assert.match(OFFSCREEN, /Pinned revision/);
+  });
+});
+
 describe('production source hygiene', () => {
   const CI = read('.github/workflows/ci.yml');
 
