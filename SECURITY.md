@@ -59,15 +59,22 @@ PhishNet protects users from phishing emails. We assume:
 |-----------|---------------------|----------------|
 | Content Script | ✅ Read-only (DOM) | ❌ None |
 | Offscreen Document | ✅ Via message | ⚠️ One-time model download from Hugging Face on first run; inference is local |
-| Background SW | ❌ Never | ❌ None |
-| Popup | ❌ Never | ❌ None |
-| Model Download | ❌ N/A | ✅ One-time (jsDelivr CDN) |
+| Background SW | ⚠️ Relays in memory — reads `payload.text` to forward to offscreen; **never persisted** | ❌ None |
+| Popup | ✅ Reads bounded scan history and stats | ❌ None |
+| Model Download | ❌ N/A | ✅ One-time from Hugging Face |
 
 ### Privacy Guarantees
 - **Zero email content** leaves the browser
 - **Zero analytics/telemetry**
 - **Model cached locally** in IndexedDB
-- **Settings only** in `chrome.storage.sync`
+- **Scan history and stats** in `chrome.storage.local` (device-local, never synced)
+- **Preferences only** in `chrome.storage.sync`
+
+The service worker sees email text only in memory, for the duration of a single
+`SCAN_EMAIL` message, to relay it to the offscreen document. It writes nothing
+to storage and makes no request with it. The offscreen document does not persist
+it either; only a bounded scan record (subject, sender, timestamp) is kept so the
+popup can show recent scans, and `CLEAR_HISTORY` removes it.
 
 ## Known Security Considerations
 
