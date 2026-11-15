@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const crypto = require('node:crypto');
 
 const ROOT = path.resolve(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
@@ -131,6 +132,45 @@ describe('content security policy', () => {
 
   test('permits wasm-unsafe-eval for the ONNX runtime', () => {
     assert.ok(csp.includes("'wasm-unsafe-eval'"));
+  });
+});
+
+describe('vendored dependencies', () => {
+  // The bundles are checked in and loaded from the extension origin under a
+  // strict CSP, so nothing in package.json records them. VENDOR.md is that
+  // record, and these tests are what keeps it true.
+  const VENDOR = read('VENDOR.md');
+  const crypto = require('node:crypto');
+  const sha256 = (file) => crypto.createHash('sha256')
+    .update(fs.readFileSync(path.join(ROOT, file)))
+    .digest('hex');
+
+  const BUNDLES = {
+    'vendor/transformers.min.js': '22266dbd81a41ed97699215a63a67e416662d70cc5f3e2d98215220d234c698d',
+    'vendor/ort-wasm/ort-wasm-simd-threaded.jsep.mjs': '3014f077d2d51ffd2174d3bcb72df482b897b81828cb3082d63e9c0a601fa3d4',
+    'vendor/ort-wasm/ort-wasm-simd-threaded.jsep.wasm': 'f125583adb98686fe44ac652a924657479b48495fecb19c6e67d4f6ea84277df',
+  };
+
+  test('every vendored bundle matches its recorded hash', () => {
+    for (const [file, expected] of Object.entries(BUNDLES)) {
+      assert.equal(sha256(file), expected, `${file} changed without updating VENDOR.md`);
+    }
+  });
+
+  test('VENDOR.md records every vendored bundle and its version', () => {
+    for (const file of Object.keys(BUNDLES)) {
+      assert.ok(VENDOR.includes(file), `VENDOR.md does not mention ${file}`);
+    }
+    assert.match(VENDOR, /@huggingface\/transformers/);
+    assert.match(VENDOR, /onnxruntime-web/);
+    assert.match(VENDOR, /3\.0\.0/);
+    assert.match(VENDOR, /1\.20\.0/);
+  });
+
+  test('VENDOR.md lists the hash of every bundle', () => {
+    for (const hash of Object.values(BUNDLES)) {
+      assert.ok(VENDOR.includes(hash), `hash ${hash} missing from VENDOR.md`);
+    }
   });
 });
 
