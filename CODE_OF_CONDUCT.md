@@ -34,7 +34,7 @@ This Code of Conduct applies in all community spaces (GitHub, Discord, etc.) and
 
 ## Reporting
 
-Report violations to the project maintainers at **conduct@phishnet.example.com** (or via GitHub private message). All reports will be reviewed promptly and fairly.
+Report violations to the project maintainers using GitHub's **Report abuse** feature on the repository, or via GitHub private message. All reports will be reviewed promptly and fairly.
 
 ## Attribution
 
