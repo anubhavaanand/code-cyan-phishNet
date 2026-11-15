@@ -35,7 +35,7 @@ test('attachment extraction preserves files that share a name but differ in size
     querySelectorAll: (selector) => selector === '[data-testid*="attachment"]' ? rows : []
   };
 
-  assert.deepEqual(Array.from(root.PhishNet.extractAttachmentsForTest(element)), [
+  assert.deepEqual(Array.from(root.PhishNet.extractAttachmentsForTest(element).items), [
     'report.pdf', 'report.pdf', 'report.pdf', 'notes.txt'
   ]);
 });
