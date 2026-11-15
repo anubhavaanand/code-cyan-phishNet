@@ -57,7 +57,7 @@ flowchart LR
     C --> B --> D["🏷️ Inline Verdict Badge<br/>+ Threat Inspector"]
 ```
 
-* **Classifier**: Quantized int8 [`distilbert_v2.4.1`](https://huggingface.co/cybersectony/phishing-email-detection-distilbert-v2.4.1) running in an isolated offscreen document via Transformers.js v3.
+* **Classifier**: Quantized int8 [`distilbert_v2.4.1`](https://huggingface.co/onnx-community/phishing-email-detection-distilbert_v2.4.1-ONNX) running in an isolated offscreen document via Transformers.js v3.
 * **Fallback Safety**: If WebAssembly or the model fails to load, rule-based heuristics seamlessly take over.
 
 ---
