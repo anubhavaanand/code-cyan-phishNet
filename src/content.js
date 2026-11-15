@@ -324,7 +324,14 @@
 
     if (senderEl) {
       senderName = safeText(senderEl);
-      const emailAttr = safeAttr(senderEl, 'email') || safeAttr(senderEl, 'data-email') || safeAttr(senderEl, 'title');
+      // Outlook exposes the address in a sibling node, not the display-name node.
+      const addressEl = selectors.senderEmail ? safeQuery(element, selectors.senderEmail, 'Sender address') : null;
+      const address = addressEl && (
+        safeAttr(addressEl, 'email') || safeAttr(addressEl, 'data-email') ||
+        safeAttr(addressEl, 'title') || safeText(addressEl)
+      );
+      const emailAttr = address || safeAttr(senderEl, 'email') ||
+        safeAttr(senderEl, 'data-email') || safeAttr(senderEl, 'title');
       if (emailAttr && emailAttr.includes('@')) {
         senderEmail = emailAttr.replace(/[<>"]/g, '').trim();
       } else if (senderName.includes('@')) {
