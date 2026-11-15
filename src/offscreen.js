@@ -10,6 +10,7 @@ import { normalizePredictions, labelSpaceSize } from './utils/model-labels.mjs';
 import { createInferenceGuard } from './utils/inference-guard.mjs';
 import { canSend, createNotifier } from './utils/background-notify.mjs';
 import { buildReasons } from './utils/reason-builder.mjs';
+import { warmupKey, isWarmed, markWarmed } from './utils/warmup-cache.mjs';
 // Side-effect import: installs globalThis.PhishNet (shared v1.1 detection
 // engine — skeletoning, Damerau typosquats, hardened URL checks)
 import './utils/heuristic-detector.js';
@@ -117,10 +118,21 @@ async function init() {
       // Load classification pipeline (handles tokenizer internally)
       classifier = await pipeline('text-classification', MODEL_ID, MODEL_OPTIONS);
 
-      reportProgress(80, 'Warming up model...');
+      // Warm up with a dummy inference, but only once per model build per
+      // browser session. The offscreen document is recreated on RELOAD_MODEL
+      // and when the browser reclaims it under memory pressure, and each
+      // recreation used to pay for the same warm-up again.
+      const key = warmupKey(MODEL_ID, MODEL_REVISION, MODEL_OPTIONS.dtype);
+      const sessionStore = chrome.storage?.session;
+      const alreadyWarmed = sessionStore ? await isWarmed(sessionStore, key) : false;
 
-      // Warm up with dummy inference
-      await classifier('Test email for warmup');
+      if (alreadyWarmed) {
+        logger.debug('Model already warmed up this session; skipping dummy inference');
+      } else {
+        reportProgress(80, 'Warming up model...');
+        await classifier('Test email for warmup');
+        if (sessionStore) await markWarmed(sessionStore, key);
+      }
 
       reportProgress(100, 'Model ready');
       modelLoaded = true;
