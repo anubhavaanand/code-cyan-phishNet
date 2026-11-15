@@ -69,7 +69,7 @@ flowchart LR
 | **Inference Time** | ~200 ms (DistilBERT) · ~0.25 ms (Heuristic Fallback) |
 | **Extension Footprint** | ~70 KB core code · 100% idle memory coalesced |
 | **Compatibility** | Desktop Chromium (Gmail, Outlook.com, Office 365 OWA) |
-| **Testing** | 283 tests (`npm test`) — `node --test` for the extension core, Vitest for the React UI — plus GitHub Actions CI |
+| **Testing** | Full suite (`npm test`) — `node --test` for the extension core, Vitest for the React UI — plus GitHub Actions CI |
 
 ---
 
