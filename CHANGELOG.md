@@ -26,10 +26,6 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and [Semantic 
 - MutationObserver for SPA navigation (Gmail/Outlook)
 
 ### Documentation
-- DESIGN.md — Architecture, components, data flow
-- IMPLEMENTATION_PLAN.md — 4-day sprint breakdown
-- API_REFERENCE.md — Message types, interfaces, storage schema
-- DEPLOYMENT.md — Chrome Web Store & Devpost submission guide
 - PRIVACY_POLICY.md — GDPR/CCPA compliant, zero data collection
 - CONTRIBUTING.md — Contribution guidelines, privacy requirements
 - SECURITY.md — Threat model, CSP, permissions justification
