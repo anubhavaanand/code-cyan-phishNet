@@ -7,6 +7,7 @@ import { pipeline, env } from '../vendor/transformers.min.js';
 import logger from './utils/logger.js';
 import { truncateText } from './utils/truncate-text.mjs';
 import { normalizePredictions, labelSpaceSize } from './utils/model-labels.mjs';
+import { createInferenceGuard } from './utils/inference-guard.mjs';
 // Side-effect import: installs globalThis.PhishNet (shared v1.1 detection
 // engine — skeletoning, Damerau typosquats, hardened URL checks)
 import './utils/heuristic-detector.js';
@@ -53,6 +54,37 @@ let classifier = null;
 let modelLoaded = false;
 let loadAttempts = 0;
 const MAX_LOAD_ATTEMPTS = 3;
+
+// Guards the single in-flight inference: timeout, supersession, and the
+// request id used to drop stale results.
+const guard = createInferenceGuard();
+
+// requestId -> the run that owns it, so a late reply can be matched against the
+// run the caller is actually waiting for. The entry is cleared by the reply
+// itself, not by runInference's finally block: that block runs before the
+// caller's .then, so clearing here would make every result look stale.
+const requestRuns = new Map();
+
+/**
+ * Record which run owns a request id.
+ * @param {string|null|undefined} requestId
+ * @param {{requestId: string|null}} run
+ */
+function rememberRun(requestId, run) {
+  if (requestId !== null && requestId !== undefined) requestRuns.set(requestId, run);
+}
+
+/**
+ * Whether the reply for `requestId` may still be delivered.
+ *
+ * @param {string|null|undefined} requestId
+ * @returns {boolean}
+ */
+function isLiveRequest(requestId) {
+  if (requestId === null || requestId === undefined) return true;
+  if (!requestRuns.has(requestId)) return false;
+  return guard.owns(requestId);
+}
 
 /**
  * Initialize and load model with retry logic
@@ -114,14 +146,25 @@ function reportProgress(progress, message) {
 }
 
 /**
- * Run inference on email text with timeout protection
+ * Run inference on email text with timeout protection.
+ *
+ * Only one run is in flight at a time. A second request supersedes the first,
+ * so a slow scan cannot overlap a newer one and two results cannot race to the
+ * same caller.
  */
-async function runInference(text, settings = {}) {
+async function runInference(text, settings = {}, requestId = null) {
   if (!classifier || !modelLoaded) {
     throw new Error('Model not loaded');
   }
 
-  const inferencePromise = (async () => {
+  const run = guard.begin(requestId);
+  rememberRun(requestId, run);
+
+  // The vendored Transformers.js build takes no AbortSignal, so the WASM work
+  // behind this promise cannot be interrupted from here. What is controllable
+  // is everything after the model returns: an abandoned run drops its result
+  // instead of spending CPU on reasons nobody will read.
+  const work = (async () => {
     const startTime = performance.now();
 
     // Truncate text to 512 tokens (approximate: 1 token ≈ 4 chars)
@@ -132,6 +175,17 @@ async function runInference(text, settings = {}) {
     // silently dropped, and the remaining scores would be reported as the
     // whole picture.
     const results = await classifier(truncatedText, { topk: labelSpaceSize(classifier) });
+
+    // Superseded or timed out while the model was running: stop here rather
+    // than produce a result that will be thrown away. The vendored runtime
+    // takes no AbortSignal, so this is the only point at which an abandoned
+    // run can be dropped instead of running to completion.
+    if (run.timedOut) {
+      throw new Error('Inference abandoned after timeout');
+    }
+    if (!guard.isCurrent(run)) {
+      throw new Error('Inference superseded by a newer request');
+    }
 
     const processingTime = Math.round(performance.now() - startTime);
 
@@ -158,18 +212,12 @@ async function runInference(text, settings = {}) {
     };
   })();
 
-  // Race against timeout (15 seconds); always clear the timer to avoid
-  // unhandled rejections when inference completes first
-  let timerId;
-  const timeoutPromise = new Promise((_, reject) => {
-    timerId = setTimeout(() => reject(new Error('Inference timeout')), 15000);
-  });
-
-  try {
-    return await Promise.race([inferencePromise, timeoutPromise]);
-  } finally {
-    clearTimeout(timerId);
-  }
+  // The guard keeps pointing at this run after it settles. That is what lets
+  // the reply handler tell "this is still the latest run" from "a newer request
+  // superseded this one"; `begin()` is what replaces it. `requestRuns` is
+  // consumed by the reply handler, not cleared here, because that handler runs
+  // after this promise settles.
+  return guard.run(work, run);
 }
 
 /**
@@ -245,8 +293,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   switch (message.type) {
     case 'RUN_INFERENCE':
-      runInference(message.payload?.text || '', message.settings || {})
+      runInference(message.payload?.text || '', message.settings || {}, message.requestId)
         .then(result => {
+          // A result for a superseded run is dropped here as well as inside
+          // runInference: the caller may have moved on since, and answering it
+          // would overwrite a newer scan's verdict.
+          if (!isLiveRequest(message.requestId)) return;
+          requestRuns.delete(message.requestId);
           chrome.runtime.sendMessage({
             type: 'INFERENCE_RESULT',
             requestId: message.requestId,
@@ -254,6 +307,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }).catch(() => {});
         })
         .catch(error => {
+          requestRuns.delete(message.requestId);
           chrome.runtime.sendMessage({
             type: 'INFERENCE_ERROR',
             requestId: message.requestId,
