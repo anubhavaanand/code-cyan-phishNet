@@ -55,7 +55,11 @@ jobs:
 
       - name: Check for console.log in production code
         run: |
-          if grep -r "console\.log" src/ --include="*.js" | grep -v "console\.error\|console\.warn\|IS_DEBUG"; then
+          # Catches console.log, console['log'] and console["log"], including
+          # when the call is split across lines. The earlier line-based
+          # grep -v missed bracket notation entirely.
+          if grep -rnE "console\s*\.\s*log\b|console\s*\[\s*['\"]log['\"]\s*\]" src/ --include="*.js" \
+             | grep -vE "console\.(error|warn)|IS_DEBUG"; then
             echo "❌ Found raw console.log in production code"
             exit 1
           else
@@ -64,9 +68,16 @@ jobs:
 
       - name: Check CSP compliance (no inline scripts)
         run: |
-          # Check HTML files for inline scripts
-          if grep -r "<script>" src/ --include="*.html" | grep -v "type=\"module\""; then
+          # `<script>` only matched the exact literal, so `<script >` and
+          # inline event handlers passed. Match any script open tag and any
+          # on* handler, then allow only type="module" tags.
+          if grep -rnE "<script[[:space:]>]" src/ --include="*.html" \
+             | grep -vE 'type="module"'; then
             echo "❌ Found inline script without type=module"
+            exit 1
+          fi
+          if grep -rnE "\son[a-z]+[[:space:]]*=" src/ --include="*.html"; then
+            echo "❌ Found an inline event handler (CSP forbids it)"
             exit 1
           fi
           # Check for eval/Function constructor
