@@ -174,6 +174,29 @@ describe('vendored dependencies', () => {
   });
 });
 
+describe('security scanning', () => {
+  const CI = read('.github/workflows/ci.yml');
+
+  test('CI audits the dependency tree and fails on high', () => {
+    // Every install passes --no-audit, so without this nothing ever looked at
+    // the dependency tree for known vulnerabilities.
+    assert.match(CI, /npm audit --audit-level=high/);
+    assert.doesNotMatch(
+      CI,
+      /npm audit --audit-level=(moderate|low|info)/,
+      'the audit threshold must not be weakened below high'
+    );
+  });
+
+  test('CodeQL runs on push, pull request and a weekly schedule', () => {
+    const codeql = read('.github/workflows/codeql.yml');
+    assert.match(codeql, /languages: javascript-typescript/);
+    assert.match(codeql, /security-events: write/);
+    assert.match(codeql, /branches: \[main\]/);
+    assert.match(codeql, /cron:/);
+  });
+});
+
 describe('model provenance', () => {
   const OFFSCREEN = read('src/offscreen.js');
 

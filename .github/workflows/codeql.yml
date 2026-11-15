@@ -1,0 +1,53 @@
+name: CodeQL
+
+# Static analysis over the JavaScript sources. The extension ships a React UI
+# and a service worker that both handle untrusted input (email content, DOM
+# nodes, message payloads), so injection and path-handling classes are worth
+# checking on every push rather than only when someone remembers to.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so a new query pack or a change in the vendored bundles surfaces
+    # without needing a commit.
+    - cron: '27 4 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          # security-and-quality is the wider pack: it adds maintainability and
+          # correctness queries on top of the security defaults. The extension is
+          # small enough that the extra time is affordable.
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:javascript-typescript'
