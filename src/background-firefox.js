@@ -44,11 +44,8 @@ async function normalizedWhitelist(values) {
 
 async function validatedSettingsPatch(patch) {
   const { validateSettingsPatch } = await import(browser.runtime.getURL('src/utils/settings-validation.mjs'));
-  const error = validateSettingsPatch(patch);
+  const error = validateSettingsPatch(patch, new Set(FIREFOX_THEMES));
   if (error) return { error };
-  if (patch.theme !== undefined && !FIREFOX_THEMES.includes(patch.theme)) {
-    return { error: 'Invalid Firefox theme setting' };
-  }
   const valid = { ...patch };
   if (Object.hasOwn(valid, 'whitelist')) {
     const entries = await normalizedWhitelist(valid.whitelist);
