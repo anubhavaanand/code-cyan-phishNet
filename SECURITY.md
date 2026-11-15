@@ -42,7 +42,8 @@ PhishNet protects users from phishing emails. We assume:
 │  │ Content Script  │  │ Offscreen Document              │  │
 │  │ (Isolated World)│  │ (Transformers.js + Model)       │  │
 │  │ - DOM extract   │◀─│ - Local inference only          │  │
-│  │ - UI inject     │  │ - No network requests           │  │
+│  │ - UI inject     │  │ - One-time model download       │  │
+│  │                 │    from Hugging Face on first run │  │
 │  └─────────────────┘  └─────────────────────────────────┘  │
 │         │                       │                            │
 │         ▼                       ▼                            │
@@ -57,7 +58,7 @@ PhishNet protects users from phishing emails. We assume:
 | Component | Email Content Access | Network Access |
 |-----------|---------------------|----------------|
 | Content Script | ✅ Read-only (DOM) | ❌ None |
-| Offscreen Document | ✅ Via message | ❌ None (inference) |
+| Offscreen Document | ✅ Via message | ⚠️ One-time model download from Hugging Face on first run; inference is local |
 | Background SW | ❌ Never | ❌ None |
 | Popup | ❌ Never | ❌ None |
 | Model Download | ❌ N/A | ✅ One-time (jsDelivr CDN) |
