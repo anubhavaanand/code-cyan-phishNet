@@ -53,6 +53,14 @@ jobs:
           done
           echo "✅ All JavaScript files have valid syntax"
 
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          # The installs above pass --no-audit, so nothing was checking the
+          # dependency tree. Fail on high and above; moderate and below are
+          # reported but do not block, since a dev-only advisory should not
+          # stop a release.
+          npm audit --audit-level=high
+
       - name: Check for console.log in production code
         run: |
           # Catches console.log, console['log'] and console["log"], including
