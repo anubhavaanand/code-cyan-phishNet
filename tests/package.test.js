@@ -211,6 +211,17 @@ describe('model provenance', () => {
   test('the revision pin is documented as deliberate', () => {
     assert.match(OFFSCREEN, /Pinned revision/);
   });
+
+  test('the message listener answers unknown types instead of hanging', () => {
+    // The listener used to end with an unconditional `return true`, which left
+    // the channel open with no sendResponse for any type it did not handle.
+    assert.match(OFFSCREEN, /default:/, 'the switch needs a default case');
+    assert.match(
+      OFFSCREEN,
+      /Unsupported message type/,
+      'an unknown type must be answered with an error'
+    );
+  });
 });
 
 describe('production source hygiene', () => {
