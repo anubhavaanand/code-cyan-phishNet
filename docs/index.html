@@ -49,7 +49,7 @@
     border-bottom: 1px solid var(--line);
   }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; letter-spacing: -0.02em; }
-  .brand .logo { width: 30px; height: 30px; display: grid; place-items: center; background: linear-gradient(135deg, var(--cyan), #6366F1); border-radius: 8px; font-size: 16px; }
+  .brand .logo { width: 30px; height: 30px; display: grid; place-items: center; background: linear-gradient(135deg, var(--cyan), var(--red)); border-radius: 8px; font-size: 16px; }
   nav .links { display: flex; gap: 28px; font-size: 14px; color: var(--muted); }
   nav .links a { color: inherit; text-decoration: none; transition: color .2s; }
   nav .links a:hover { color: var(--cyan); }
@@ -57,7 +57,7 @@
     display: inline-flex; align-items: center; gap: 8px;
     min-height: 44px;
     padding: 9px 20px; border-radius: 10px; font-size: 14px; font-weight: 600;
-    color: #07130D; background: var(--cyan); text-decoration: none;
+    color: var(--text); background: var(--cyan); text-decoration: none;
     transition: transform .15s ease, box-shadow .2s;
   }
   .gh-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 30px rgba(111,214,160,.35); }
@@ -88,7 +88,7 @@
     letter-spacing: -0.04em; font-weight: 700;
   }
   h1 .grad {
-    background: linear-gradient(100deg, var(--cyan) 20%, #45D0B0 55%, var(--red));
+    background: linear-gradient(100deg, var(--cyan) 20%, var(--green) 55%, var(--red));
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   .hero-sub { margin: 22px auto 0; max-width: 640px; font-size: clamp(15px, 2vw, 19px); line-height: 1.65; color: var(--muted); }
@@ -96,8 +96,8 @@
     .btn-primary {
     position: relative; overflow: hidden;
     padding: 14px 30px; border-radius: 12px; font-weight: 700; font-size: 15px;
-    background: linear-gradient(135deg, #37A277, var(--cyan) 55%, #23664B);
-    color: #06130D; text-decoration: none; border: 1px solid rgba(151,232,187,.35); cursor: pointer;
+    background: linear-gradient(135deg, var(--green) 0%, var(--cyan) 55%, #0B2A1F);
+    color: var(--text); text-decoration: none; border: 1px solid var(--line); cursor: pointer;
     box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 8px 26px rgba(46,143,104,.35);
     transition: transform .15s ease, box-shadow .25s ease;
     text-shadow: 0 1px 2px rgba(0,0,0,.18);
@@ -220,14 +220,14 @@
   /* install */
   .install-box {
     margin-top: 46px; border: 1px solid var(--line); border-radius: 16px;
-    background: #0D1420; overflow: hidden;
+    background: var(--panel); overflow: hidden;
   }
   .install-head { display: flex; gap: 7px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
   .install-head i { width: 11px; height: 11px; border-radius: 50%; display: block; }
   .install-body { padding: 26px 22px; display: grid; gap: 14px; }
   .cmd-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
   .cmd-row .n { font-family: 'IBM Plex Mono', monospace; color: var(--cyan); font-size: 13px; min-width: 22px; }
-  .cmd-row code { font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; color: #A5F3FC; background: rgba(111,214,160,.07); padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(111,214,160,.15); }
+  .cmd-row code { font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; color: var(--text); background: rgba(111,214,160,.07); padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); }
   .cmd-row span { color: var(--muted); font-size: 13.5px; }
 
   /* ---------- PRODUCT PREVIEW MOCK ---------- */
@@ -249,28 +249,28 @@
   .mail-from span { color:var(--muted); font-size:12.5px; }
   .pn-badge-demo {
     display:inline-flex; align-items:center; gap:5px;
-    background:rgba(244,63,94,.14); color:#FDA4AF;
-    border:1px solid rgba(244,63,94,.4);
+    background:rgba(111,214,160,.14); color:var(--text);
+    border:1px solid var(--red);
     font-size:11.5px; font-weight:700; padding:4px 10px; border-radius:999px;
-    box-shadow: 0 0 14px rgba(244,63,94,.22);
+    box-shadow: 0 0 14px var(--red);
   }
   .mail-subject { color:var(--text); font-weight:600; margin-bottom:10px; font-size:14.5px; }
   .mail-line { color:var(--muted); line-height:1.65; }
-  .bad-link { color:#FCA5A5; text-decoration: underline wavy rgba(244,63,94,.7) 1.5px; text-underline-offset: 3px; }
-  .link-warn { font-size:11px; color:#F43F5E; font-weight:700; }
+  .bad-link { color:var(--text); text-decoration: underline wavy var(--red) 1.5px; text-underline-offset: 3px; }
+  .link-warn { font-size:11px; color:var(--red); font-weight:700; }
   .inspector-head { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid var(--line); background:rgba(111,214,160,.05); }
   .inspector-head b { font-size:13px; letter-spacing:.02em; }
-  .verdict { display:flex; justify-content:space-between; align-items:center; padding:18px 20px; background:rgba(244,63,94,.09); border-bottom:1px solid rgba(244,63,94,.25); }
-  .verdict .v-label { color:#FDA4AF; font-weight:700; font-size:15px; }
-  .verdict .v-score { font-family:'IBM Plex Mono',monospace; font-size:26px; font-weight:700; color:#F43F5E; text-shadow:0 0 22px rgba(244,63,94,.55); }
+  .verdict { display:flex; justify-content:space-between; align-items:center; padding:18px 20px; background:rgba(244,63,94,.09); border-bottom:1px solid var(--red); }
+  .verdict .v-label { color:var(--text); font-weight:700; font-size:15px; }
+  .verdict .v-score { font-family:'IBM Plex Mono',monospace; font-size:26px; font-weight:700; color:var(--text); text-shadow:0 0 22px var(--red); }
   .sig-grid { display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:16px 18px; }
   .sig { border:1px solid var(--line); border-radius:10px; padding:11px 12px; background:rgba(17,24,39,.5); }
   .sig small { display:block; color:var(--muted); font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }
   .sig b { font-family:'IBM Plex Mono',monospace; font-size:14.5px; }
-  .sig b.bad { color:#F43F5E; } .sig b.good { color:#10B981; } .sig b.warn { color:#FBBF24; }
+  .sig b.bad { color:var(--red); } .sig b.good { color:var(--green); } .sig b.warn { color:var(--amber); }
   .reasons { padding: 2px 18px 18px; display:grid; gap:7px; }
   .reason { display:flex; gap:8px; font-size:12.5px; color:var(--muted); line-height:1.5; }
-  .reason::before { content:"▸"; color:#F43F5E; }
+  .reason::before { content:"▸"; color:var(--red); }
 
   /* ---------- SCROLL REVEAL ---------- */
   .reveal { opacity: 0; transform: translateY(26px); transition: opacity .75s cubic-bezier(.2,.7,.3,1), transform .75s cubic-bezier(.2,.7,.3,1); }
@@ -337,7 +337,7 @@
   <div class="preview-wrap reveal">
     <!-- Email mock -->
     <div class="mail-mock">
-      <div class="mock-chrome"><i style="background:#F43F5E"></i><i style="background:#FBBF24"></i><i style="background:#10B981"></i></div>
+      <div class="mock-chrome"><i style="background:var(--red)"></i><i style="background:var(--amber)"></i><i style="background:var(--green)"></i></div>
       <div class="mock-body">
         <div class="mail-from">
           <span class="avatar">P</span>
@@ -347,7 +347,7 @@
         </div>
         <div class="mail-subject">Action Required: Verify Your Account Now</div>
         <p class="mail-line">
-          Dear customer, your account has been <b style="color:#FDA4AF">suspended</b>.
+          Dear customer, your account has been <b style="color:var(--text)">suspended</b>.
           Confirm your identity within 24 hours at
           <a class="bad-link" href="#" data-preview-link="inert">secure-verify.tk/login</a> <span class="link-warn">⚠️</span><br>
           or permanently lose access to your funds.
@@ -383,12 +383,12 @@
   <h2>Everything a phisher hopes you don't have.</h2>
   <p class="sec-desc">Inline verdicts, deep link forensics and attachment analysis — rendered straight into the mail client you already use.</p>
   <div class="feature-grid">
-    <div class="feature" style="--accent:#6FD6A0"><div class="icon">🛡️</div><h3>Inline Verdict Badges</h3><p>Every opened email gets an instant 🛡️ Safe / ⚠️ Phishing / ❓ Uncertain badge in the message header, with a confidence score.</p></div>
-    <div class="feature" style="--accent:#F43F5E"><div class="icon">🔍</div><h3>Threat Inspector Modal</h3><p>Click any badge for a full breakdown: urgency score, domain trust, link-by-link safety and attachment risk — all explained.</p></div>
-    <div class="feature" style="--accent:#10B981"><div class="icon">🔗</div><h3>Spoofed Link Detection</h3><p>Homograph (Cyrillic lookalikes), punycode, typosquatting via Levenshtein distance against 25+ major brands, and display-text mismatch.</p></div>
-    <div class="feature" style="--accent:#FBBF24"><div class="icon">📎</div><h3>Weaponized Attachments</h3><p>Detects executables, scripts, ISO images and deceptive double extensions like <span class="mono">invoice.pdf.exe</span>.</p></div>
-    <div class="feature" style="--accent:#45D0B0"><div class="icon">⭐</div><h3>Trusted Senders</h3><p>Whitelist domains and addresses you trust. Whitelisted mail is marked instantly — no re-scan, no noise.</p></div>
-    <div class="feature" style="--accent:#34D399"><div class="icon">📊</div><h3>Local Dashboard</h3><p>Scan history and threat stats stored purely on-device. Clear them any time with one click.</p></div>
+    <div class="feature" style="--accent:var(--cyan)"><div class="icon">🛡️</div><h3>Inline Verdict Badges</h3><p>Every opened email gets an instant 🛡️ Safe / ⚠️ Phishing / ❓ Uncertain badge in the message header, with a confidence score.</p></div>
+    <div class="feature" style="--accent:var(--red)"><div class="icon">🔍</div><h3>Threat Inspector Modal</h3><p>Click any badge for a full breakdown: urgency score, domain trust, link-by-link safety and attachment risk — all explained.</p></div>
+    <div class="feature" style="--accent:var(--green)"><div class="icon">🔗</div><h3>Spoofed Link Detection</h3><p>Homograph (Cyrillic lookalikes), punycode, typosquatting via Levenshtein distance against 25 major brands, and display-text mismatch.</p></div>
+    <div class="feature" style="--accent:var(--amber)"><div class="icon">📎</div><h3>Weaponized Attachments</h3><p>Detects executables, scripts, ISO images and deceptive double extensions like <span class="mono">invoice.pdf.exe</span>.</p></div>
+    <div class="feature" style="--accent:var(--cyan)"><div class="icon">⭐</div><h3>Trusted Senders</h3><p>Whitelist domains and addresses you trust. Whitelisted mail is marked instantly — no re-scan, no noise.</p></div>
+    <div class="feature" style="--accent:var(--green)"><div class="icon">📊</div><h3>Local Dashboard</h3><p>Scan history and threat stats stored purely on-device. Clear them any time with one click.</p></div>
   </div>
 </section>
 
