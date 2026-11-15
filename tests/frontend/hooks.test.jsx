@@ -64,6 +64,39 @@ describe('useSettings', () => {
     expect(call).toBeDefined();
     expect(call.settings.theme).toBe('dark');
   });
+
+  it('update() persists exactly once per call', async () => {
+    const useSettings = await loadHook('useSettings');
+    const { result } = renderHook(() => useSettings());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+
+    await act(async () => {
+      await result.current.update('theme', 'dark');
+    });
+
+    // The write used to live inside the setSettings updater, which React can
+    // invoke twice; one call must mean one write.
+    const writes = mock.sent.filter((m) => m.type === 'UPDATE_SETTINGS');
+    expect(writes).toHaveLength(1);
+  });
+
+  it('update() merges onto the latest settings, not a stale snapshot', async () => {
+    const useSettings = await loadHook('useSettings');
+    const { result } = renderHook(() => useSettings());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+
+    await act(async () => {
+      await result.current.update('theme', 'dark');
+    });
+    await act(async () => {
+      await result.current.update('highlightLinks', false);
+    });
+
+    const writes = mock.sent.filter((m) => m.type === 'UPDATE_SETTINGS');
+    const last = writes[writes.length - 1];
+    expect(last.settings.theme).toBe('dark');
+    expect(last.settings.highlightLinks).toBe(false);
+  });
 });
 
 describe('useModelStatus', () => {
