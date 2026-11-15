@@ -78,17 +78,22 @@ describe('sensitivity labels', () => {
     expect(values).toEqual([...values].sort((a, b) => a - b));
   });
 
-  it('resolves a percentage to its label', () => {
+  it('resolves an exact percentage to its label', () => {
     expect(getSensitivityLabel(0.7).label).toBe('Standard');
+    expect(getSensitivityLabel(0.8).label).toBe('Selective');
   });
 
   it('rounds before matching', () => {
     expect(getSensitivityLabel(0.695).label).toBe('Standard');
   });
 
-  it('falls back to the default for an unmatched value', () => {
-    const fallback = getSensitivityLabel(0.123);
-    expect(fallback).toBe(SENSITIVITY_LABELS[2]);
+  it('returns the nearest label for an in-between value', () => {
+    expect(getSensitivityLabel(0.73).label).toBe('Standard');
+    expect(getSensitivityLabel(0.99).label).toBe('Very Strict');
+  });
+
+  it('returns the lowest label for a value below the defined range', () => {
+    expect(getSensitivityLabel(0.1).label).toBe('Cautious');
   });
 });
 
