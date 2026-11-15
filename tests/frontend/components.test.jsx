@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Button, Badge, TabBar, EmptyState, Icon, LogoMark, Toast, ConfidenceRing } from '@/components';
+import { AnimatedNumber } from '@/components/AnimatedNumber';
 
 describe('Button', () => {
   it('renders its children', () => {
@@ -231,3 +232,42 @@ describe('ConfidenceRing', () => {
   });
 });
 
+describe('AnimatedNumber', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('counts up from zero on first mount', () => {
+    const { container } = render(<AnimatedNumber value={10} duration={100} />);
+    expect(container.textContent).toBe('0');
+  });
+
+  test('settles exactly on the target', async () => {
+    const { container } = render(<AnimatedNumber value={10} duration={100} />);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(Number(container.textContent)).toBe(10);
+  });
+
+  test('a changed target never renders below the value it started from', async () => {
+    const { container, rerender } = render(<AnimatedNumber value={10} duration={100} />);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(Number(container.textContent)).toBe(10);
+
+    rerender(<AnimatedNumber value={20} duration={100} />);
+    const seen = [];
+    for (let i = 0; i < 8; i += 1) {
+      await vi.advanceTimersByTimeAsync(10);
+      seen.push(Number(container.textContent));
+    }
+    for (const v of seen) {
+      expect(v).toBeGreaterThanOrEqual(10);
+      expect(v).toBeLessThanOrEqual(20);
+    }
+    await vi.advanceTimersByTimeAsync(200);
+    expect(Number(container.textContent)).toBe(20);
+  });
+});
