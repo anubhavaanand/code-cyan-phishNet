@@ -566,7 +566,16 @@
       'refund','tax','irs','government','legal','court'
     ];
     const fullText = `${subject} ${text}`.toLowerCase();
-    const foundUrgency = [...new Set(urgencyKeywords.filter(kw => fullText.includes(kw)))];
+    // Word-boundary match. `includes` fired `tax` on "taxi" and `account` on
+    // "accounting", inflating the urgency score on ordinary mail.
+    const foundUrgency = [...new Set(
+      urgencyKeywords.filter((kw) => {
+        if (!kw.includes(' ')) {
+          return new RegExp(`\\b${kw}\\b`, 'i').test(fullText);
+        }
+        return fullText.includes(kw);
+      })
+    )];
     if (foundUrgency.length > 0) {
       urgencyScore = Math.min(foundUrgency.length * 8, 40);
       reasons.push(`Urgency signals: ${foundUrgency.slice(0, 3).join(', ')}`);

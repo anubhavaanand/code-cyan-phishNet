@@ -264,6 +264,22 @@ describe('URL analysis', () => {
     );
   });
 
+  test('matches urgency keywords on word boundaries only', () => {
+    const reasons = (t) => heuristicDetect({
+      subject: 'x', text: t, sender: {}, links: [], attachments: []
+    }).reasons;
+
+    // `includes` fired `tax` on "taxi" and `account` on "accounting".
+    assert.deepEqual(reasons('The taxi rank is on 5th'), []);
+    assert.deepEqual(reasons('Our accounting team prepared this'), []);
+
+    // Real signals still fire.
+    assert.ok(reasons('Verify your account now').some((r) => /urgency/i.test(r)));
+    assert.ok(reasons('Your tax refund is ready').some((r) => /urgency/i.test(r)));
+    // Multi-word phrases still match.
+    assert.ok(reasons('Limited time offer').some((r) => /urgency/i.test(r)));
+  });
+
   test('flags high-abuse TLDs', () => {
     assert.equal(isUrlSuspicious('http://paypal-login.tk/verify'), true);
     assert.equal(isUrlSuspicious('https://microsoft-support.xyz/update'), true);

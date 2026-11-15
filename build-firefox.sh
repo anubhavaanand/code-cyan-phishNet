@@ -4,6 +4,10 @@
 #   - event-page background script instead of service worker
 #   - "offscreen" permission removed (unsupported -> install error)
 #   - gecko browser_specific_settings added
+#
+# Firefox uses the vanilla popup at src/popup.html (copied by this script).
+# Chrome uses the React popup at frontend/ -> dist/popup.html (built by Vite).
+# Both popups are intentional per-browser builds — see CONTRIBUTING.md "Two popups, on purpose".
 set -euo pipefail
 cd "$(dirname "$0")"
 
