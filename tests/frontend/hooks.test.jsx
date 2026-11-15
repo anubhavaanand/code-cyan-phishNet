@@ -105,6 +105,44 @@ describe('useModelStatus', () => {
     vi.useRealTimers();
   });
 
+  it('clears a stale error once the status recovers', async () => {
+    mock.respondWith({ modelStatus: 'error', progress: 0, error: 'Model failed to load' });
+    const useModelStatus = await loadHook('useModelStatus');
+    const { result } = renderHook(() => useModelStatus(1000));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.error).toBe('Model failed to load');
+
+    mock.respondWith({ modelStatus: 'ready', progress: 1 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(result.current.status).toBe('ready');
+    expect(result.current.error).toBeNull();
+
+    vi.useRealTimers();
+  });
+
+  it('clears a stale error on a pushed recovery', async () => {
+    mock.respondWith({ modelStatus: 'error', progress: 0, error: 'Nope' });
+    const useModelStatus = await loadHook('useModelStatus');
+    const { result } = renderHook(() => useModelStatus(1000));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.error).toBe('Nope');
+
+    act(() => {
+      mock.deliver({ type: 'MODEL_STATUS', payload: { status: 'ready', progress: 1 } });
+    });
+    expect(result.current.error).toBeNull();
+
+    vi.useRealTimers();
+  });
+
   it('clears its polling interval on unmount', async () => {
     mock.respondWith({ modelStatus: 'ready', progress: 1 });
     const useModelStatus = await loadHook('useModelStatus');
