@@ -62,7 +62,7 @@ export function StatsTab({ stats, history, onClear }) {
 
               return (
                 <div
-                  key={item.id || i}
+                  key={`${item.id || 'row'}-${i}`}
                   style={{
                     display: 'flex',
                     alignItems: 'center',

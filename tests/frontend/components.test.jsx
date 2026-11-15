@@ -67,15 +67,34 @@ describe('Badge', () => {
 describe('TabBar', () => {
   it('renders a tab for each section', () => {
     render(<TabBar active="scan" onChange={() => {}} />);
+    expect(screen.getByRole('tablist', { name: /main/i })).toBeInTheDocument();
     for (const label of ['Scan', 'Stats', 'Trusted', 'Settings']) {
-      expect(screen.getByRole('button', { name: new RegExp(label) })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: new RegExp(label) })).toBeInTheDocument();
     }
+  });
+
+  it('marks only the active tab as selected and focusable', () => {
+    render(<TabBar active="scan" onChange={() => {}} />);
+    const tabs = screen.getAllByRole('tab');
+    const selected = tabs.filter((t) => t.getAttribute('aria-selected') === 'true');
+    expect(selected).toHaveLength(1);
+    expect(selected[0]).toHaveTextContent('Scan');
+    expect(tabs.filter((t) => t.getAttribute('tabindex') === '0')).toHaveLength(1);
   });
 
   it('reports the selected tab id', async () => {
     const onChange = vi.fn();
     render(<TabBar active="scan" onChange={onChange} />);
-    await userEvent.click(screen.getByRole('button', { name: /Stats/ }));
+    await userEvent.click(screen.getByRole('tab', { name: /Stats/ }));
+    expect(onChange).toHaveBeenCalledWith('stats');
+  });
+
+  it('moves with the arrow keys', async () => {
+    const onChange = vi.fn();
+    render(<TabBar active="scan" onChange={onChange} />);
+    const first = screen.getAllByRole('tab')[0];
+    first.focus();
+    await userEvent.keyboard('{ArrowRight}');
     expect(onChange).toHaveBeenCalledWith('stats');
   });
 });

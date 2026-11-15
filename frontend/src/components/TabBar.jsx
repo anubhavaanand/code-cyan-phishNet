@@ -13,8 +13,25 @@ const TABS = [
 ];
 
 export function TabBar({ active, onChange }) {
+  const onKeyDown = (e) => {
+    const i = TABS.findIndex((t) => t.id === active);
+    let next = null;
+    if (e.key === 'ArrowRight') next = (i + 1) % TABS.length;
+    else if (e.key === 'ArrowLeft') next = (i - 1 + TABS.length) % TABS.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = TABS.length - 1;
+    if (next === null) return;
+    e.preventDefault();
+    onChange(TABS[next].id);
+    const el = e.currentTarget.querySelectorAll('[role="tab"]')[next];
+    el?.focus();
+  };
+
   return (
     <div
+      role="tablist"
+      aria-label="Main"
+      onKeyDown={onKeyDown}
       style={{
         display: 'flex',
         background: 'var(--pn-bg-card)',
@@ -28,6 +45,9 @@ export function TabBar({ active, onChange }) {
         return (
           <button
             key={tab.id}
+            role="tab"
+            aria-selected={isActive}
+            tabIndex={isActive ? 0 : -1}
             onClick={() => onChange(tab.id)}
             style={{
               flex: 1,
