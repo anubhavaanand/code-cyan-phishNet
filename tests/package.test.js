@@ -117,6 +117,7 @@ describe('content security policy', () => {
     'script-src': [S('self'), S('wasm-unsafe-eval'), S('wasm-eval'), S('none'), S('inline-speculation-rules')],
     'object-src': [S('self'), S('none')],
     'worker-src': [S('self'), S('none')],
+    'style-src': [S('self'), S('unsafe-inline'), S('none')],
   };
 
   test('allows wasm but no remote script sources', () => {
