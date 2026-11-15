@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Button, Badge, TabBar, EmptyState, Icon, LogoMark, Toast } from '@/components';
+import { Button, Badge, TabBar, EmptyState, Icon, LogoMark, Toast, ConfidenceRing } from '@/components';
 
 describe('Button', () => {
   it('renders its children', () => {
@@ -194,3 +194,40 @@ describe('LogoMark', () => {
     expect(svg).toHaveAttribute('aria-label', 'PhishNet');
   });
 });
+
+describe('ConfidenceRing', () => {
+  it('renders the percentage as text', () => {
+    render(<ConfidenceRing value={0.87} />);
+    expect(screen.getByText('87%')).toBeInTheDocument();
+  });
+
+  it('starts empty and then fills, so the transition has a start value', () => {
+    const { container } = render(<ConfidenceRing value={0.5} size={56} stroke={5} />);
+    const ring = container.querySelectorAll('circle')[1];
+    const circumference = 2 * Math.PI * ((56 - 5) / 2);
+    expect(Number(ring.getAttribute('stroke-dashoffset'))).toBeCloseTo(circumference, 1);
+  });
+
+  test('settles on the target offset after the frame', async () => {
+    const { container } = render(<ConfidenceRing value={0.5} size={56} stroke={5} />);
+    const ring = container.querySelectorAll('circle')[1];
+    const circumference = 2 * Math.PI * ((56 - 5) / 2);
+    await waitFor(() => {
+      expect(Number(ring.getAttribute('stroke-dashoffset'))).toBeCloseTo(circumference / 2, 1);
+    });
+  });
+
+  test('drains back to empty when the value resets to zero', async () => {
+    const { container, rerender } = render(<ConfidenceRing value={0.9} />);
+    const ring = container.querySelectorAll('circle')[1];
+    const circumference = 2 * Math.PI * ((56 - 5) / 2);
+    await waitFor(() => {
+      expect(Number(ring.getAttribute('stroke-dashoffset'))).toBeLessThan(circumference);
+    });
+    rerender(<ConfidenceRing value={0} />);
+    await waitFor(() => {
+      expect(Number(ring.getAttribute('stroke-dashoffset'))).toBeCloseTo(circumference, 1);
+    });
+  });
+});
+
