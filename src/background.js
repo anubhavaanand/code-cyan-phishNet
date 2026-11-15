@@ -79,7 +79,8 @@ async function init() {
 }
 
 /**
- * Load settings from chrome.storage.sync
+ * Load non-sensitive preferences from sync and trusted senders from local.
+ * Migrate and remove whitelists saved by earlier versions in sync storage.
  */
 async function loadSettings() {
   return new Promise((resolve) => {
@@ -89,29 +90,47 @@ async function loadSettings() {
       'highlightLinks',
       'showTooltip',
       'theme',
-      'whitelist'
-    ], (result) => {
-      settings = {
-        autoScan: result?.autoScan ?? true,
-        sensitivityThreshold: result?.sensitivityThreshold ?? 0.7,
-        highlightLinks: result?.highlightLinks ?? true,
-        showTooltip: result?.showTooltip ?? true,
-        theme: result?.theme ?? 'auto',
-        whitelist: Array.isArray(result?.whitelist) ? result.whitelist : ['github.com', 'google.com', 'microsoft.com', 'amazon.com', 'apple.com']
-      };
-      resolve(settings);
+      'whitelist' // Read only to migrate and delete legacy synced data.
+    ], (synced) => {
+      chrome.storage.local.get('whitelist', (local) => {
+        const localWhitelist = Array.isArray(local?.whitelist) ? local.whitelist : null;
+        const legacyWhitelist = Array.isArray(synced?.whitelist) ? synced.whitelist : null;
+        settings = {
+          autoScan: synced?.autoScan ?? true,
+          sensitivityThreshold: synced?.sensitivityThreshold ?? 0.7,
+          highlightLinks: synced?.highlightLinks ?? true,
+          showTooltip: synced?.showTooltip ?? true,
+          theme: synced?.theme ?? 'auto',
+          whitelist: localWhitelist ?? legacyWhitelist ??
+            ['github.com', 'google.com', 'microsoft.com', 'amazon.com', 'apple.com']
+        };
+
+        if (Object.hasOwn(synced ?? {}, 'whitelist')) {
+          // Local data takes precedence. Delete the old synced copy only
+          // after the chosen whitelist has been written locally.
+          chrome.storage.local.set({ whitelist: settings.whitelist }, () => {
+            chrome.storage.sync.remove('whitelist', () => resolve(settings));
+          });
+        } else {
+          resolve(settings);
+        }
+      });
     });
   });
 }
 
 /**
- * Save settings to chrome.storage.sync
+ * Persist the trusted-sender whitelist locally, never in synced settings.
  */
 async function saveSettings(newSettings) {
   settings = { ...settings, ...newSettings };
+  const { whitelist, ...syncedSettings } = settings;
   return new Promise((resolve) => {
-    chrome.storage.sync.set(settings, () => {
-      resolve(settings);
+    chrome.storage.local.set({ whitelist }, () => {
+      chrome.storage.sync.set(syncedSettings, () => {
+        // Also clean up any whitelist synced by an older extension version.
+        chrome.storage.sync.remove('whitelist', () => resolve(settings));
+      });
     });
   });
 }
@@ -244,10 +263,11 @@ async function handleIncomingMessage(message, sender) {
 
     case 'CLEAR_HISTORY': {
       if (chrome.storage?.local) {
-        // Every key in storage.local is private to this extension. Clear it
-        // completely so future locally cached scan data cannot survive a
-        // user's privacy reset; preferences are kept in storage.sync.
-        await chrome.storage.local.clear();
+        // Clear all locally cached scan data (including future cache keys),
+        // but preserve the local-only trusted-sender preference.
+        const localData = await chrome.storage.local.get(null);
+        const historyKeys = Object.keys(localData).filter(key => key !== 'whitelist');
+        if (historyKeys.length) await chrome.storage.local.remove(historyKeys);
       }
       return { success: true };
     }
