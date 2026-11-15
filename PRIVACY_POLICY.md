@@ -71,7 +71,7 @@ Updates will be posted to the GitHub repository. Continued use after changes con
 
 ## Contact
 - **GitHub Issues**: https://github.com/anubhavaanand/code-cyan-phishNet/issues
-- **Email**: your.email@example.com
+- **Security concerns**: use GitHub Private Vulnerability Reporting (see [SECURITY.md](SECURITY.md)) — please do not open a public issue for a vulnerability
 
 ## Compliance
 - **GDPR**: PhishNet processes personal data (email subject lines, sender addresses, and classification results) locally on your device for phishing detection. This local processing is still processing under GDPR, but no personal data is transmitted or stored externally beyond your device's local storage. You can clear your scan history at any time from the Options page or by uninstalling the extension.
