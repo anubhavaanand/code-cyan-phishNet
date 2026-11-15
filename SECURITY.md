@@ -11,8 +11,11 @@
 
 **Please do NOT open public issues for security vulnerabilities.**
 
-Instead, email **security@phishnet.example.com** (or contact maintainers via GitHub private message) with:
+Instead, report privately using GitHub's **Private Vulnerability Reporting**:
+- Go to the repository's **Security** tab → **Report a vulnerability**
+- Or use the advisory form at https://github.com/anubhavaanand/code-cyan-phishNet/security/advisories/new
 
+Include:
 1. Description of the vulnerability
 2. Steps to reproduce
 3. Potential impact
@@ -131,5 +134,5 @@ If a vulnerability is discovered in production:
 
 ## Contact
 
-Security concerns: **security@phishnet.example.com**
+Security concerns: GitHub Private Vulnerability Reporting (see above)
 General issues: GitHub Issues
