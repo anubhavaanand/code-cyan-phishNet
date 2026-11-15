@@ -185,16 +185,131 @@
   function levenshteinDistance(a, b) { return damerauLevenshtein(a, b); }
 
   /**
+   * Punycode (RFC 3492) decode, for a single label.
+   * No punycode API is available in a content script — URL.domainToUnicode
+   * exists in Chrome but not in Firefox, and not in Node for tests — so this
+   * is the decoder. It only needs to handle real IDN labels; malformed input
+   * returns null rather than throwing.
+   */
+  const punycodeToUnicode = (() => {
+    const BASE = 36, TMIN = 1, TMAX = 26, SKEW = 38, DAMP = 700, INITIAL_BIAS = 72, INITIAL_N = 128;
+
+    const adapt = (delta, numPoints, firstTime) => {
+      let d = firstTime ? Math.floor(delta / DAMP) : delta >> 1;
+      d += Math.floor(d / numPoints);
+      let k = 0;
+      while (d > ((BASE - TMIN) * TMAX) >> 1) {
+        d = Math.floor(d / (BASE - TMIN));
+        k += BASE;
+      }
+      return k + Math.floor(((BASE - TMIN + 1) * d) / (d + SKEW));
+    };
+
+    const digitValue = (code) => {
+      if (code >= 48 && code <= 57) return code - 22;   // 0-9 -> 26-35
+      if (code >= 65 && code <= 90) return code - 65;   // A-Z -> 0-25
+      if (code >= 97 && code <= 122) return code - 97;  // a-z -> 0-25
+      return -1;
+    };
+
+    const decodeLabel = (input) => {
+      const basic = input.lastIndexOf('-');
+      const output = [];
+      for (let j = 0; j < basic; j++) output.push(input.charCodeAt(j));
+
+      let n = INITIAL_N, i = 0, bias = INITIAL_BIAS;
+      let idx = basic > 0 ? basic + 1 : 0;
+
+      while (idx < input.length) {
+        const oldi = i;
+        let w = 1;
+        for (let k = BASE; ; k += BASE) {
+          if (idx >= input.length) return null;
+          const digit = digitValue(input.charCodeAt(idx++));
+          if (digit < 0) return null;
+          i += digit * w;
+          const t = k <= bias ? TMIN : (k >= bias + TMAX ? TMAX : k - bias);
+          if (digit < t) break;
+          w *= BASE - t;
+        }
+        const outLen = output.length + 1;
+        bias = adapt(i - oldi, outLen, oldi === 0);
+        n += Math.floor(i / outLen);
+        i %= outLen;
+        output.splice(i, 0, n);
+        i++;
+      }
+      try {
+        return String.fromCodePoint(...output);
+      } catch {
+        return null;
+      }
+    };
+
+    return (domain) => {
+      const labels = String(domain || '').toLowerCase().split('.');
+      let changed = false;
+      const out = labels.map((label) => {
+        if (!label.startsWith('xn--')) return label;
+        const decoded = decodeLabel(label.slice(4));
+        if (decoded === null) return label;
+        changed = true;
+        return decoded;
+      });
+      return changed ? out.join('.') : null;
+    };
+  })();
+
+  /**
+   * Punycode is not inherently suspicious. Most of it is ordinary IDN —
+   * `xn--80ak6aa92e.com`, `xn--p1ai`, the Cyrillic TLD — and flagging every
+   * occurrence marked legitimate internationalised domains as phishing.
+   *
+   * A punycode label is only a homograph when what it decodes to is
+   * confusable with a brand, or when a brand sits in plain ASCII beside it
+   * in the same domain. Both are checked on the decoded form.
+   */
+  function punycodeSpoofsBrand(cleanDomain) {
+    if (!cleanDomain.includes('xn--')) return false;
+
+    const decoded = punycodeToUnicode(cleanDomain);
+    if (decoded === null) return true; // undecodable punycode is not something we can vouch for
+
+    const skeleton = (s) => {
+      let out = '';
+      const folded = s.toLowerCase().normalize('NFKC');
+      for (const ch of stripInvisible(folded)) out += CONFUSABLE_MAP.get(ch) || ch;
+      return out;
+    };
+
+    const decodedLabels = decoded.split('.');
+    const asciiLabels = cleanDomain.split('.').filter((l) => !l.startsWith('xn--'));
+
+    for (const brand of BRAND_SET) {
+      // decoded label folds onto a brand
+      for (const label of decodedLabels) {
+        if (label.startsWith('xn--')) continue;
+        if (skeleton(label) === brand && label !== brand) return true;
+      }
+      // brand in plain ASCII alongside a punycode label
+      if (asciiLabels.includes(brand) && decodedLabels.length > asciiLabels.length) return true;
+    }
+    return false;
+  }
+
+  /**
    * Mixed-script homograph detection (Latin + Cyrillic/Greek mixing,
    * punycode labels, or invisible characters).
    */
   function detectHomographAttack(str) {
     if (!str) return false;
     const s = String(str).toLowerCase();
-    if (s.includes('xn--')) return true;
     if (hasInvisible(s)) return true;
     const hasLatin = LATIN_REGEX.test(s);
-    return (hasLatin && CYRILLIC_REGEX.test(s)) || (hasLatin && GREEK_REGEX.test(s) && s.length > 4);
+    const mixedScript = (hasLatin && CYRILLIC_REGEX.test(s)) ||
+                        (hasLatin && GREEK_REGEX.test(s) && s.length > 4);
+    if (mixedScript) return true;
+    return punycodeSpoofsBrand(s);
   }
 
   /**
