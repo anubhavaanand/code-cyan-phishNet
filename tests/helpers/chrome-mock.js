@@ -82,6 +82,11 @@ function createChromeMock(options = {}) {
           if (typeof cb === 'function') return cb();
           return Promise.resolve();
         },
+        remove: (keys, cb) => {
+          for (const key of Array.isArray(keys) ? keys : [keys]) delete syncStore[key];
+          if (typeof cb === 'function') return cb();
+          return Promise.resolve();
+        },
       },
       local: {
         get: (keys, cb) => {
@@ -91,6 +96,11 @@ function createChromeMock(options = {}) {
         },
         set: (obj, cb) => {
           Object.assign(localStore, clone(obj));
+          if (typeof cb === 'function') return cb();
+          return Promise.resolve();
+        },
+        remove: (keys, cb) => {
+          for (const key of Array.isArray(keys) ? keys : [keys]) delete localStore[key];
           if (typeof cb === 'function') return cb();
           return Promise.resolve();
         },
