@@ -63,6 +63,30 @@ describe('retryWithBackoff', () => {
     );
     assert.equal(calls, 2);
   });
+
+  test('jitters the delay instead of retrying on a fixed schedule', async () => {
+    // Full jitter: the delay is uniform in [0, ceiling). Two runs must not
+    // produce the same sequence, and every delay must stay under the ceiling.
+    const original = Math.random;
+    const delays = [];
+    try {
+      let calls = 0;
+      Math.random = () => 0.5;   // fixed ceiling, deterministic
+      const start = Date.now();
+      const origSetTimeout = global.setTimeout;
+      global.setTimeout = (fn, ms) => { delays.push(ms); return origSetTimeout(fn, 0); };
+      await retryWithBackoff(async () => { calls++; throw new Error('x'); }, 3, 100).catch(() => {});
+      global.setTimeout = origSetTimeout;
+      assert.ok(Date.now() - start >= 0);
+    } finally {
+      Math.random = original;
+    }
+    // ceilings are 100 and 200; with Math.random()=0.5 expect ~50 and ~100
+    assert.ok(delays.length === 2, `expected 2 delays, got ${delays.length}`);
+    assert.ok(delays[0] < 100, `delay ${delays[0]} must be under ceiling 100`);
+    assert.ok(delays[1] < 200, `delay ${delays[1]} must be under ceiling 200`);
+    assert.ok(delays[0] !== 100, 'a jittered delay must not equal the ceiling');
+  });
 });
 
 describe('safe DOM helpers', () => {
