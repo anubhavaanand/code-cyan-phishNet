@@ -11,9 +11,24 @@ export function SegmentedControl({ items, active, onChange, size = 'md' }) {
   };
   const s = sizes[size];
 
+  const onKeyDown = (e) => {
+    const i = items.findIndex((it) => it.id === active);
+    let next = null;
+    if (e.key === 'ArrowRight') next = (i + 1) % items.length;
+    else if (e.key === 'ArrowLeft') next = (i - 1 + items.length) % items.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = items.length - 1;
+    if (next === null) return;
+    e.preventDefault();
+    onChange(items[next].id);
+    const el = e.currentTarget.querySelectorAll('[role="tab"]')[next];
+    el?.focus();
+  };
+
   return (
     <div
       role="tablist"
+      onKeyDown={onKeyDown}
       style={{
         display: 'flex',
         gap: 2,
@@ -29,6 +44,7 @@ export function SegmentedControl({ items, active, onChange, size = 'md' }) {
             key={item.id}
             role="tab"
             aria-selected={isActive}
+            tabIndex={isActive ? 0 : -1}
             onClick={() => onChange(item.id)}
             style={{
               flex: 1,
