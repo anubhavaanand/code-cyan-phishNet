@@ -9,7 +9,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
 });
 
 const booleanSettings = new Set(['autoScan', 'highlightLinks', 'showTooltip']);
-const allowedThemes = new Set(['auto', 'aloe', 'graphite', 'dusk', 'light', 'dark']);
+const allowedThemes = new Set(['auto', 'light', 'dark']);
 
 function isValidSetting(key, value) {
   if (booleanSettings.has(key)) return typeof value === 'boolean';
