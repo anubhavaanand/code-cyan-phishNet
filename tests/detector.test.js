@@ -101,6 +101,39 @@ describe('brand lookalike detection', () => {
     assert.ok(checkLookalikeBrand('paypal.com.account-verify.xyz'));
   });
 
+  test('does not flag domains that merely contain a brand as a substring', () => {
+    // cleanDomain.includes(brand) flagged these: the brand was part of a longer
+    // word, not a label of its own.
+    for (const domain of [
+      'mygithub.io',
+      'notamazon.com',
+      'amazoniantribes.org',
+      'appleorchard.com',
+      'netflix-dvd.net',
+      'githubtv.com',
+    ]) {
+      assert.equal(checkLookalikeBrand(domain), null, `${domain} must not be flagged`);
+    }
+  });
+
+  test('still flags a brand used as its own label', () => {
+    for (const domain of [
+      'github.evil.com',
+      'paypal.com.attacker.net',
+      'github.com.evil.net',
+      'amazon.support-login.com',
+    ]) {
+      assert.ok(checkLookalikeBrand(domain), `${domain} must be flagged`);
+    }
+  });
+
+  test('still flags real typos and confusable spoofs', () => {
+    assert.ok(checkLookalikeBrand('paypa1.com'));
+    assert.ok(checkLookalikeBrand('payapl.com'));
+    assert.ok(checkLookalikeBrand('paypall.com'));
+    assert.ok(checkLookalikeBrand('g00gle.com'));
+  });
+
   test('does not flag the official domain', () => {
     assert.equal(checkLookalikeBrand('paypal.com'), null);
   });

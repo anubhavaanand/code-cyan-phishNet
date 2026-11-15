@@ -338,11 +338,17 @@
     const mainName = parts.length > 1 ? parts[parts.length - 2] : cleanDomain;
     const skelMain = skeleton(mainName);
     const skelDomain = skeleton(cleanDomain);
+    // Everything before the registrable label: the subdomain labels plus any
+    // multi-part suffix. A brand here is a deception; a brand inside a longer
+    // label is not.
+    const labelsBeforeTld = parts.slice(0, -1);
 
     for (const brand of BRAND_SET) {
-      // subdomain deception: brand appears anywhere but this isn't an official host
-      // (official hosts were already exempted above)
-      if (cleanDomain.includes(brand) && mainName !== brand) {
+      // subdomain deception: a brand used as a whole label somewhere other than
+      // the registrable name. Comparing labels rather than substrings is what
+      // separates github.evil.com (deceptive) from mygithub.io and
+      // notamazon.com (legitimate domains that merely contain the word).
+      if (mainName !== brand && labelsBeforeTld.some((l) => l === brand || skeleton(l) === brand)) {
         return { brand, type: 'subdomain_deception', reason: `Brand '${brand}' deceptive use in subdomain or domain` };
       }
       // typosquatting on skeleton forms with Damerau distance.
@@ -352,7 +358,13 @@
         if (dist === 0 && mainName !== brand) {
           return { brand, type: 'skeleton_spoof', reason: `Confusable characters spoofing '${brand}' (${mainName})` };
         }
-        if (dist === 1 || (dist === 2 && mainName.length >= 6)) {
+        // A brand bolted onto the front or back of another word is a compound
+        // (mygithub, githubtv, amazonian), not a typo of the brand. Those are
+        // ordinary names, and flagging them is the false positive this issue
+        // is about. Real typos — substitutions, transpositions, a single edit
+        // in the middle — still land below.
+        const compound = mainName.startsWith(brand) || mainName.endsWith(brand);
+        if (dist === 1 || (dist === 2 && mainName.length >= 6 && !compound)) {
           return { brand, type: 'typosquatting', reason: `Typosquatted lookalike domain for '${brand}' (${mainName})` };
         }
       }
