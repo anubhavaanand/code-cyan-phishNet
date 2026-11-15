@@ -32,7 +32,7 @@ On first use, the extension downloads the ONNX model directly from Hugging Face:
 ## Permissions Used
 | Permission | Purpose |
 |------------|---------|
-| `storage` | Save user preferences (synced across your devices) |
+| `storage` | Sync non-sensitive preferences across devices and keep trusted sender entries on your device |
 | `offscreen` | Run ML inference in background context |
 | `host_permissions` | Run declared content scripts on supported Gmail/Outlook origins |
 
@@ -44,7 +44,8 @@ On first use, the extension downloads the ONNX model directly from Hugging Face:
 
 ## Data Retention
 - **Model cache**: Managed by browser (clearable via Chrome settings → Clear browsing data)
-- **User preferences**: Stored in `chrome.storage.sync` (synced to your Google account, deletable)
+- **Non-sensitive preferences**: Stored in `chrome.storage.sync` (synced to your Google account, deletable)
+- **Trusted sender whitelist**: Stored only in `chrome.storage.local` on your device and not synced across devices; previous synced copies are removed during migration
 - **No server-side storage** whatsoever
 
 ## Your Rights

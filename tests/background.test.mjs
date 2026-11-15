@@ -59,12 +59,12 @@ describe('GET_STATUS / GET_SETTINGS', () => {
 describe('UPDATE_SETTINGS', () => {
   it('rejects malformed whitelist updates without corrupting settings or storage', async () => {
     const before = (await send({ type: 'GET_SETTINGS' })).whitelist;
-    const storedBefore = mock.syncStore.whitelist;
+    const storedBefore = mock.localStore.whitelist;
     for (const invalid of ['github.com', { 0: 'github.com' }, [42, 'github.com'], null]) {
       const res = await send({ type: 'UPDATE_SETTINGS', settings: { whitelist: invalid } });
       assert.equal(res.success, false, `rejected ${JSON.stringify(invalid)}`);
       assert.deepEqual((await send({ type: 'GET_SETTINGS' })).whitelist, before);
-      assert.deepEqual(mock.syncStore.whitelist, storedBefore);
+      assert.deepEqual(mock.localStore.whitelist, storedBefore);
     }
   });
 
@@ -115,9 +115,18 @@ describe('whitelist management', () => {
     assert.equal(res.whitelist.includes('example.com'), false);
   });
 
-  it('persists the whitelist to storage', async () => {
-    assert.ok(Array.isArray(mock.syncStore.whitelist));
-    assert.equal(mock.syncStore.whitelist.includes('example.com'), false);
+  it('persists trusted senders only in local storage', async () => {
+    assert.ok(Array.isArray(mock.localStore.whitelist));
+    assert.equal(mock.localStore.whitelist.includes('example.com'), false);
+    assert.equal(Object.hasOwn(mock.syncStore, 'whitelist'), false);
+  });
+
+  it('never syncs the whitelist when unrelated preferences change', async () => {
+    await send({ type: 'ADD_WHITELIST', entry: 'private.sender@example.com' });
+    await send({ type: 'UPDATE_SETTINGS', settings: { theme: 'light' } });
+    assert.ok(mock.localStore.whitelist.includes('private.sender@example.com'));
+    assert.equal(Object.hasOwn(mock.syncStore, 'whitelist'), false);
+    assert.equal(mock.syncStore.theme, 'light');
   });
 });
 
@@ -127,10 +136,11 @@ describe('CLEAR_HISTORY', () => {
     mock.localStore.scanStats = { total: 5 };
     mock.localStore.futureThreatCache = { private: 'sensitive scan data' };
     const previousTheme = mock.syncStore.theme;
+    const previousWhitelist = [...mock.localStore.whitelist];
 
     const res = await send({ type: 'CLEAR_HISTORY' });
     assert.equal(res.success, true);
-    assert.deepEqual(mock.localStore, {});
+    assert.deepEqual(mock.localStore, { whitelist: previousWhitelist });
     assert.equal(mock.syncStore.theme, previousTheme);
   });
 });
