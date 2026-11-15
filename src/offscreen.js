@@ -9,6 +9,7 @@ import { truncateText } from './utils/truncate-text.mjs';
 import { normalizePredictions, labelSpaceSize } from './utils/model-labels.mjs';
 import { createInferenceGuard } from './utils/inference-guard.mjs';
 import { canSend, createNotifier } from './utils/background-notify.mjs';
+import { buildReasons } from './utils/reason-builder.mjs';
 // Side-effect import: installs globalThis.PhishNet (shared v1.1 detection
 // engine — skeletoning, Damerau typosquats, hardened URL checks)
 import './utils/heuristic-detector.js';
@@ -40,14 +41,6 @@ const MODEL_OPTIONS = {
   dtype: 'q8',            // Quantized for smaller size (~50MB)
   device: 'auto',         // Use WebGPU if available, fallback to WASM
   revision: MODEL_REVISION
-};
-
-// Human-readable reasons for each canonical label.
-const LABEL_REASONS = {
-  'legitimate_email': 'Content appears legitimate',
-  'phishing_email': 'Content matches phishing patterns',
-  'legitimate_url': 'Links appear safe',
-  'phishing_url': 'Suspicious links detected'
 };
 
 // State
@@ -172,10 +165,14 @@ function reportProgress(progress, message) {
  * so a slow scan cannot overlap a newer one and two results cannot race to the
  * same caller.
  */
-async function runInference(text, settings = {}, requestId = null) {
+async function runInference(payload = {}, settings = {}, requestId = null) {
   if (!classifier || !modelLoaded) {
     throw new Error('Model not loaded');
   }
+
+  const text = typeof payload === 'string' ? payload : (payload?.text || '');
+  const sender = payload && typeof payload === 'object' ? payload.sender : undefined;
+  const links = payload && typeof payload === 'object' ? payload.links : undefined;
 
   const run = guard.begin(requestId);
   rememberRun(requestId, run);
@@ -217,8 +214,9 @@ async function runInference(text, settings = {}, requestId = null) {
     const label = topPrediction?.label || 'uncertain';
     const confidence = topPrediction?.score || 0;
 
-    // Generate reasons based on predictions
-    const reasons = generateReasons(predictions, text, settings);
+    // Generate reasons from the structured sender and links when the payload
+    // carries them, falling back to the text otherwise.
+    const reasons = generateReasons(predictions, text, settings, { sender, links });
 
     return {
       label,
@@ -241,68 +239,20 @@ async function runInference(text, settings = {}, requestId = null) {
 }
 
 /**
- * Generate human-readable reasons
+ * Generate human-readable reasons.
+ *
+ * Structured `sender` and `links` are used when the payload carries them; the
+ * text fallbacks cover callers that only have the subject and body.
  */
-function generateReasons(predictions, text = '', settings = {}) {
-  const reasons = [];
-
-  // Top prediction reason
-  const topLabel = predictions[0]?.label;
-  if (topLabel && LABEL_REASONS[topLabel]) {
-    reasons.push(LABEL_REASONS[topLabel]);
-  }
-
-  // Sensitivity threshold check
-  const threshold = settings.sensitivityThreshold ?? 0.7;
-  if (predictions[0]?.score < threshold) {
-    reasons.push('Low confidence - manual review recommended');
-  }
-
-  // Check for phishing keywords
-  const phishingKeywords = [
-    'urgent', 'immediate', 'verify', 'account', 'suspend', 'locked',
-    'click here', 'confirm', 'update', 'security', 'unauthorized',
-    'limited time', 'act now', 'expire', 'password', 'credential'
-  ];
-
-  const lowerText = text.toLowerCase();
-  const foundKeywords = phishingKeywords.filter(kw => lowerText.includes(kw));
-
-  if (foundKeywords.length > 0) {
-    reasons.push(`Contains urgency keywords: ${foundKeywords.slice(0, 3).join(', ')}`);
-  }
-
-  // Check for suspicious links
-  const urlRegex = /https?:\/\/[^\s"'<>]+/g;
-  const urls = text.match(urlRegex) || [];
-
-  let suspiciousLinks = 0;
-  for (const url of urls) {
-    if (isUrlSuspicious(url)) suspiciousLinks++;
-  }
-
-  if (suspiciousLinks > 0) {
-    reasons.push(`${suspiciousLinks} suspicious link(s) detected`);
-  }
-
-  // Sender domain analysis + v1.1 brand-lookalike detection
-  const emailRegex = /[a-zA-Z0-9._%+-]+@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
-  let match;
-  while ((match = emailRegex.exec(text)) !== null) {
-    const domain = match[1]?.toLowerCase();
-    if (!domain) continue;
-    if (isDomainSuspicious(domain)) {
-      reasons.push(`Suspicious sender domain: ${domain}`);
-      break;
-    }
-    const lookalike = checkLookalikeBrand(domain);
-    if (lookalike && lookalike.brand && lookalike.brand !== 'unknown') {
-      reasons.push(`Domain mimics "${lookalike.brand}" (${domain})`);
-      break;
-    }
-  }
-
-  return reasons.slice(0, 5);
+function generateReasons(predictions, text = '', settings = {}, structured = {}) {
+  return buildReasons({
+    predictions,
+    text,
+    sender: structured.sender,
+    links: structured.links,
+    settings,
+    detector: { isUrlSuspicious, isDomainSuspicious, checkLookalikeBrand }
+  });
 }
 
 /**
@@ -313,7 +263,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   switch (message.type) {
     case 'RUN_INFERENCE':
-      runInference(message.payload?.text || '', message.settings || {}, message.requestId)
+      runInference(message.payload || {}, message.settings || {}, message.requestId)
         .then(result => {
           // A result for a superseded run is dropped here as well as inside
           // runInference: the caller may have moved on since, and answering it

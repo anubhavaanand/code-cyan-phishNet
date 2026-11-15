@@ -190,7 +190,7 @@ describe('SCAN_EMAIL gating', () => {
     assert.equal(typeof res.result.label, 'string');
   });
 
-  it('forwards only bounded text while accepting fields at their limits', async () => {
+  it('forwards bounded text, sender, and links while accepting fields at their limits', async () => {
     const payload = {
       text: 'x'.repeat(32768), subject: 's'.repeat(1024),
       body: 'b'.repeat(32768),
@@ -202,7 +202,22 @@ describe('SCAN_EMAIL gating', () => {
     const res = await send({ type: 'SCAN_EMAIL', payload });
     assert.equal(res.success, true);
     const forwarded = mock.sentMessages.filter(m => m.type === 'RUN_INFERENCE').at(-1);
-    assert.deepEqual(forwarded.payload, { text: payload.text });
+    // The model needs the sender and the real hrefs to explain a verdict; the
+    // body, subject, attachments, and unknown fields stay behind.
+    assert.deepEqual(forwarded.payload, {
+      text: payload.text,
+      sender: payload.sender,
+      links: payload.links
+    });
+    assert.equal('attachments' in forwarded.payload, false);
+    assert.equal('unexpectedNestedField' in forwarded.payload, false);
+  });
+
+  it('omits an absent sender and link list rather than sending empty values', async () => {
+    const res = await send({ type: 'SCAN_EMAIL', payload: { text: 'plain body' } });
+    assert.equal(res.success, true);
+    const forwarded = mock.sentMessages.filter(m => m.type === 'RUN_INFERENCE').at(-1);
+    assert.deepEqual(forwarded.payload, { text: 'plain body' });
   });
 });
 
