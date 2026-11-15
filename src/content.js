@@ -324,6 +324,11 @@
       '[email]', '[data-email]', '.sender', '.from', '[data-testid="message-header-sender-name"]'
     ].filter(Boolean);
     const senderEl = safeQuery(element, senderSelectors, 'Sender');
+    // Outlook renders display names and addresses in separate sibling nodes.
+    // Resolve the address independently, even when the name selector matches.
+    const senderEmailEl = selectors.senderEmail
+      ? safeQuery(element, selectors.senderEmail, 'Sender email')
+      : null;
 
     if (senderEl) {
       senderName = safeText(senderEl);
@@ -336,6 +341,15 @@
       if (senderEmail) {
         const match = senderEmail.match(/@([^@\s>]+)/);
         if (match) senderDomain = match[1].toLowerCase();
+      }
+    }
+    if (senderEmailEl) {
+      const value = safeAttr(senderEmailEl, 'email') || safeAttr(senderEmailEl, 'data-email') ||
+        safeAttr(senderEmailEl, 'title') || safeText(senderEmailEl);
+      const match = value.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/);
+      if (match) {
+        senderEmail = match[0];
+        senderDomain = senderEmail.split('@')[1].toLowerCase();
       }
     }
 
