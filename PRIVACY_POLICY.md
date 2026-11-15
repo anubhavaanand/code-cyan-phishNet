@@ -22,8 +22,9 @@ All phishing detection runs entirely on your device:
 4. **Output**: Only classification results (Safe/Phishing/Uncertain) shown in UI
 
 ## Model Download
-On first use, the extension downloads the ONNX model from Hugging Face via jsDelivr CDN:
-- **Source**: `https://cdn.jsdelivr.net/npm/@huggingface/transformers/*`
+On first use, the extension downloads the ONNX model directly from Hugging Face:
+- **Source**: `https://huggingface.co/` (Transformers.js v3 default; no CDN intermediary)
+- **Model**: `onnx-community/phishing-email-detection-distilbert_v2.4.1-ONNX`
 - **Size**: ~50MB (one-time download)
 - **Caching**: Stored locally via browser cache and IndexedDB
 - **Offline**: Works completely offline after initial download
