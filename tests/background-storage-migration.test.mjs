@@ -47,3 +47,15 @@ for (const [index, scenario] of cases.entries()) {
     assert.equal(mock.syncStore.theme, 'light');
   });
 }
+
+test('normalizes a malformed threshold loaded from synced storage', async () => {
+  const mock = createChromeMock({ sync: { sensitivityThreshold: 42 } });
+  globalThis.chrome = mock.chrome;
+  await import('../src/background.js?threshold-on-load');
+  await mock.flush();
+  await mock.flush();
+
+  assert.equal((await mock.send({ type: 'GET_SETTINGS' })).sensitivityThreshold, 1);
+  await mock.send({ type: 'UPDATE_SETTINGS', settings: { theme: 'dark' } });
+  assert.equal(mock.syncStore.sensitivityThreshold, 1);
+});
