@@ -8,6 +8,7 @@ import logger from './utils/logger.js';
 import { truncateText } from './utils/truncate-text.mjs';
 import { normalizePredictions, labelSpaceSize } from './utils/model-labels.mjs';
 import { createInferenceGuard } from './utils/inference-guard.mjs';
+import { canSend, createNotifier } from './utils/background-notify.mjs';
 // Side-effect import: installs globalThis.PhishNet (shared v1.1 detection
 // engine — skeletoning, Damerau typosquats, hardened URL checks)
 import './utils/heuristic-detector.js';
@@ -58,6 +59,26 @@ const MAX_LOAD_ATTEMPTS = 3;
 // Guards the single in-flight inference: timeout, supersession, and the
 // request id used to drop stale results.
 const guard = createInferenceGuard();
+
+// Every message to the service worker goes through this. The worker can be
+// suspended between a scan finishing and the reply being sent, and during
+// shutdown sendMessage can throw rather than reject, so an unguarded call is
+// either an unhandled rejection or a lost status with no trace.
+const notify = createNotifier(
+  (message) => chrome.runtime.sendMessage(message),
+  (message, error) => {
+    if (!canSend(chrome.runtime)) {
+      logger.debug(`Dropped ${message.type}: extension context is gone`);
+      return;
+    }
+    logger.debug(`Dropped ${message.type}: ${error?.message || error}`);
+  }
+);
+
+/** Report model status to the background worker, or drop it quietly. */
+function reportModelStatus(status, extra = {}) {
+  return notify({ type: status, ...extra });
+}
 
 // requestId -> the run that owns it, so a late reply can be matched against the
 // run the caller is actually waiting for. The entry is cleared by the reply
@@ -112,7 +133,7 @@ async function init() {
       modelLoaded = true;
 
       // Notify background
-      chrome.runtime.sendMessage({ type: 'OFFSCREEN_READY' });
+      await reportModelStatus('OFFSCREEN_READY');
       logger.debug('Model loaded successfully');
       return;
 
@@ -121,8 +142,7 @@ async function init() {
       
       if (loadAttempts >= MAX_LOAD_ATTEMPTS) {
         logger.error('All model load attempts failed');
-        chrome.runtime.sendMessage({
-          type: 'OFFSCREEN_ERROR',
+        await reportModelStatus('OFFSCREEN_ERROR', {
           error: `Failed to load model after ${MAX_LOAD_ATTEMPTS} attempts: ${error.message}`
         });
         return;
@@ -138,11 +158,11 @@ async function init() {
  * Report loading progress to background
  */
 function reportProgress(progress, message) {
-  chrome.runtime.sendMessage({
+  return notify({
     type: 'MODEL_LOAD_PROGRESS',
     progress,
     message
-  }).catch(() => {});
+  });
 }
 
 /**
@@ -300,19 +320,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // would overwrite a newer scan's verdict.
           if (!isLiveRequest(message.requestId)) return;
           requestRuns.delete(message.requestId);
-          chrome.runtime.sendMessage({
+          notify({
             type: 'INFERENCE_RESULT',
             requestId: message.requestId,
             result
-          }).catch(() => {});
+          });
         })
         .catch(error => {
           requestRuns.delete(message.requestId);
-          chrome.runtime.sendMessage({
+          notify({
             type: 'INFERENCE_ERROR',
             requestId: message.requestId,
             error: error.message
-          }).catch(() => {});
+          });
         });
       sendResponse({ success: true });
       return true;
