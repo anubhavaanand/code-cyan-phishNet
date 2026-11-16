@@ -42,20 +42,16 @@ const BINARY_NEGATIVE = new Set(['negative', 'ham']);
  * Resolve one raw model label to a canonical name.
  *
  * @param {unknown} rawLabel label as reported by the pipeline
- * @param {number} index position in the score array the label came from
+ * @param {Record<string|number, string>|null} [id2label] the checkpoint's own
+ *   class-index to label-name table, when the pipeline exposes it
  * @returns {string|null} canonical name, or null when the label is unmappable
  */
-export function resolveLabelName(rawLabel, index) {
+export function resolveLabelName(rawLabel, id2label = null) {
   const raw = typeof rawLabel === 'string' ? rawLabel.trim() : '';
   if (!raw) return null;
 
   const lower = raw.toLowerCase();
   if (KNOWN_LABELS[lower]) return lower;
-
-  // Position is only ever a hint, and only a valid one when the caller passed a
-  // real slot. Anything else must be treated as "no positional information".
-  const hasPosition = Number.isInteger(index) && index >= 0 && index < CANONICAL_LABELS.length;
-  const position = hasPosition ? index : -1;
 
   // 1. The label names both a polarity and a modality: trust it outright.
   const saysPhishing = PHISHING_NAME.test(lower) || NEGATED_LEGITIMATE.test(lower);
@@ -70,13 +66,32 @@ export function resolveLabelName(rawLabel, index) {
   if (BINARY_POSITIVE.has(lower)) return 'phishing_email';
   if (BINARY_NEGATIVE.has(lower)) return 'legitimate_email';
 
-  // 3. An opaque but explicitly numbered id (`LABEL_2`). Position is meaningful
-  // only when the number agrees with the slot the model returned it in, which
-  // is what a reordered checkpoint would violate.
+  // 3. An opaque but explicitly numbered id (`LABEL_2`). The number is a class
+  //    id, never a rank: the pipeline returns results sorted by score
+  //    descending, so the array position says nothing about which class a row
+  //    belongs to. Reading it as a slot made a reordered or merely sorted
+  //    result set drop the winning class and report a loser as the verdict.
   const numbered = lower.match(/^label_?(\d+)$/);
   if (!numbered) return null;
-  if (Number(numbered[1]) !== position) return null;
-  return CANONICAL_LABELS[position];
+
+  let classIndex = Number(numbered[1]);
+
+  // When the checkpoint publishes its own table, that table outranks the number
+  // embedded in the name: a checkpoint that reordered its classes still maps
+  // correctly, because the lookup is by the label it actually emitted.
+  const table = id2label && typeof id2label === 'object' ? id2label : null;
+  if (table) {
+    const declared = Object.keys(table).find(
+      (key) => typeof table[key] === 'string' && table[key].trim().toLowerCase() === lower
+    );
+    if (declared === undefined) return null;
+    classIndex = Number(declared);
+  }
+
+  if (!Number.isInteger(classIndex) || classIndex < 0 || classIndex >= CANONICAL_LABELS.length) {
+    return null;
+  }
+  return CANONICAL_LABELS[classIndex];
 }
 
 /**
@@ -86,21 +101,34 @@ export function resolveLabelName(rawLabel, index) {
  * traceable back to whatever the checkpoint called its classes.
  *
  * @param {object|object[]} results pipeline output (or a single object)
+ * @param {Record<string|number, string>|null} [id2label] the checkpoint's own
+ *   class-index to label-name table, when the pipeline exposes it
  * @returns {{label: string, score: number, rawLabel: unknown}[]}
  */
-export function normalizePredictions(results) {
+export function normalizePredictions(results, id2label = null) {
   const entries = Array.isArray(results) ? results : [results];
   return entries
-    .map((entry, i) => {
+    .map((entry) => {
       const score = Number(entry?.score);
       return {
         rawLabel: entry?.label,
-        label: resolveLabelName(entry?.label, i),
+        label: resolveLabelName(entry?.label, id2label),
         score: Number.isFinite(score) ? score : 0
       };
     })
     .filter(entry => entry.label)
     .sort((a, b) => b.score - a.score);
+}
+
+/**
+ * Read a pipeline's own class-index to label-name table.
+ *
+ * @param {object|null} classifier pipeline instance
+ * @returns {Record<string|number, string>|null}
+ */
+export function labelTable(classifier) {
+  const id2label = classifier?.model?.config?.id2label;
+  return id2label && typeof id2label === 'object' && !Array.isArray(id2label) ? id2label : null;
 }
 
 /**

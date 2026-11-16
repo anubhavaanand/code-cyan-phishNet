@@ -6,7 +6,7 @@
 import { pipeline, env } from '../vendor/transformers.min.js';
 import logger from './utils/logger.js';
 import { truncateText } from './utils/truncate-text.mjs';
-import { normalizePredictions, labelSpaceSize } from './utils/model-labels.mjs';
+import { normalizePredictions, labelSpaceSize, labelTable } from './utils/model-labels.mjs';
 import { createInferenceGuard } from './utils/inference-guard.mjs';
 import { canSend, createNotifier } from './utils/background-notify.mjs';
 import { buildReasons } from './utils/reason-builder.mjs';
@@ -219,8 +219,10 @@ async function runInference(payload = {}, settings = {}, requestId = null) {
     const processingTime = Math.round(performance.now() - startTime);
 
     // Process results, translating whatever the checkpoint calls its classes
-    // onto our four canonical names.
-    const predictions = normalizePredictions(results);
+    // onto our four canonical names. The checkpoint's own id2label table is
+    // passed through so a class is identified by the name the model emitted,
+    // not by where it landed in a score-sorted array.
+    const predictions = normalizePredictions(results, labelTable(classifier));
 
     const topPrediction = predictions[0];
     const label = topPrediction?.label || 'uncertain';
