@@ -222,6 +222,40 @@ describe('URL analysis', () => {
     assert.match(result.links[0].reason, /unencrypted HTTP/i);
   });
 
+  test('does not flag a keyword merely contained in a label', () => {
+    // Substring matching flagged accountant.com (contains "account") and
+    // similar ordinary domains. A keyword counts only as its own label or as
+    // a hyphen/underscore-separated word.
+    for (const url of [
+      'https://accountant.com/',
+      'https://myaccount.example/',
+      'https://accounting.example/',
+      'https://securely.example/',
+      'https://loginbox.example/',
+      'https://updater.example/',
+    ]) {
+      assert.equal(isUrlSuspicious(url), false, `${url} must not be suspicious`);
+    }
+  });
+
+  test('still flags a keyword used as its own word in a host', () => {
+    for (const url of [
+      'https://secure-login.example.com/',
+      'https://account-verify.example.com/',
+      'https://login.account.example.com/',
+      'https://verify_update.example.com/',
+    ]) {
+      assert.equal(isUrlSuspicious(url), true, `${url} must be suspicious`);
+    }
+  });
+
+  test('spares a domain that is exactly the keyword', () => {
+    // Preserves the old behaviour: secure.com and account.com are not flagged.
+    for (const url of ['https://secure.com/', 'https://account.com/', 'https://update.com/']) {
+      assert.equal(isUrlSuspicious(url), false, `${url} must not be suspicious`);
+    }
+  });
+
   test('does not double-count links or attachments passed twice', () => {
     // Callers pass emailContent as well as its links and attachments, so the
     // same entry can arrive twice. Each must be counted once.
@@ -413,6 +447,38 @@ describe('display-name impersonation', () => {
   test('accepts a brand name on its official domain', () => {
     const clean = detectDisplayNameImpersonation({ name: 'PayPal Service Team', domain: 'paypal.com' });
     assert.equal(clean, null);
+  });
+
+  test('does not flag a brand merely contained in an ordinary word', () => {
+    // "Purchaser" contains "chase" and "groups" contains "ups"; substring
+    // matching flagged both, hitting legitimate senders.
+    for (const name of ['Purchaser', 'groups', 'Upsell', 'upside', 'Chased', 'Account', 'Securely']) {
+      assert.equal(
+        detectDisplayNameImpersonation({ name, domain: 'mail.example.com' }),
+        null,
+        `${name} must not be treated as a brand claim`
+      );
+    }
+  });
+
+  test('still flags a brand as a whole word', () => {
+    for (const name of ['Chase', 'UPS', 'PayPal', 'Amazon Support']) {
+      const hit = detectDisplayNameImpersonation({ name, domain: 'mail.example.com' });
+      assert.ok(hit, `${name} must be flagged`);
+    }
+  });
+
+  test('flags a brand opening a camel-case compound', () => {
+    // "PayPalService" has no separator; the brand still opens the name.
+    const hit = detectDisplayNameImpersonation({ name: 'PayPalService', domain: 'mail.example.com' });
+    assert.ok(hit, 'a camel-case brand compound must be flagged');
+    assert.equal(hit.brand, 'paypal');
+  });
+
+  test('flags a lookalike token in the display name', () => {
+    const hit = detectDisplayNameImpersonation({ name: 'PayPa1 Security', domain: 'mail.example.com' });
+    assert.ok(hit, 'a skeleton lookalike must be flagged');
+    assert.equal(hit.brand, 'paypal');
   });
 
   test('tolerates missing fields', () => {
