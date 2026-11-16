@@ -55,7 +55,7 @@ test('normalizes a malformed threshold loaded from synced storage', async () => 
   await mock.flush();
   await mock.flush();
 
-  assert.equal((await mock.send({ type: 'GET_SETTINGS' })).sensitivityThreshold, 1);
+  assert.equal((await mock.send({ type: 'GET_SETTINGS' })).sensitivityThreshold, 0.7);
   await mock.send({ type: 'UPDATE_SETTINGS', settings: { theme: 'dark' } });
-  assert.equal(mock.syncStore.sensitivityThreshold, 1);
+  assert.equal(mock.syncStore.sensitivityThreshold, 0.7);
 });
