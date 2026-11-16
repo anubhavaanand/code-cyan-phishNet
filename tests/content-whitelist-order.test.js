@@ -3,13 +3,14 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const path = require('node:path');
 
-test('sender trust is checked before short-email scanning is skipped', () => {
+test('sender trust is checked before scanning, without a short-message cutoff', () => {
   const content = readFileSync(path.resolve(__dirname, '../src/content.js'), 'utf8');
   const whitelist = content.indexOf('if (isWhitelisted) {');
-  const tooShort = content.indexOf('if (!emailContent.text || emailContent.text.length < 15) {');
+  const hasSignals = content.indexOf('const hasSignals =');
   const modelScan = content.indexOf("type: 'SCAN_EMAIL'");
 
-  assert.ok(whitelist !== -1 && tooShort !== -1 && modelScan !== -1);
-  assert.ok(whitelist < tooShort, 'trusted senders must not be skipped for short content');
-  assert.ok(tooShort < modelScan, 'short untrusted messages should still be skipped');
+  assert.ok(whitelist !== -1 && hasSignals !== -1 && modelScan !== -1);
+  assert.ok(whitelist < hasSignals, 'explicit sender trust must take precedence over scanning');
+  assert.ok(hasSignals < modelScan, 'only messages without any usable signals should be deferred');
+  assert.ok(!content.includes('emailContent.text.length < 15'), 'short phishing messages must be scanned');
 });
