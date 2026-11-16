@@ -4,7 +4,7 @@
  * A whitelist entry disables scanning for everything it matches, so an
  * over-broad value is a protection bypass rather than a bad preference.
  */
-import { test, describe, it } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {

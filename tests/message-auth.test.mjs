@@ -5,7 +5,7 @@
  * worker must decide who may send what before routing. These tests pin that
  * contract independently of the model-loading service worker.
  */
-import { test, describe, it } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
@@ -16,6 +16,7 @@ import {
   SHARED_MESSAGE_TYPES,
   checkSender
 } from '../src/utils/message-auth.mjs';
+import { isSupportedMailTabUrl } from '../src/utils/mail-urls.mjs';
 
 const EXT = 'phishnet-test';
 
@@ -26,7 +27,10 @@ const otherTab = { id: EXT, tab: { id: 2, url: 'https://example.com/' } };
 /** An extension page such as the popup or options page. */
 const page = { id: EXT };
 
-const isMailTab = (sender) => sender?.tab?.url?.includes('mail.google.com');
+// Use the extension's own URL predicate so the test cannot drift from what
+// the worker actually accepts. A substring test would also accept
+// https://mail.google.com.evil.example/.
+const isMailTab = (sender) => isSupportedMailTabUrl(sender?.tab?.url);
 const check = (type, sender) => checkSender(type, sender, EXT, isMailTab);
 
 describe('sender identity', () => {
@@ -62,6 +66,20 @@ describe('tab senders', () => {
     for (const type of CONTENT_ONLY_MESSAGE_TYPES) {
       const result = check(type, otherTab);
       assert.equal(result.ok, false, `${type} must be rejected`);
+      assert.match(result.error, /not from a supported mail tab/);
+    }
+  });
+
+  it('rejects a host that merely contains a mail hostname', () => {
+    // A substring check would accept these; the URL parser must not.
+    for (const url of [
+      'https://mail.google.com.evil.example/',
+      'https://evil.example/mail.google.com',
+      'http://mail.google.com/'
+    ]) {
+      const sender = { id: EXT, tab: { id: 3, url } };
+      const result = check(CONTENT_ONLY_MESSAGE_TYPES[0], sender);
+      assert.equal(result.ok, false, `${url} must be rejected`);
       assert.match(result.error, /not from a supported mail tab/);
     }
   });

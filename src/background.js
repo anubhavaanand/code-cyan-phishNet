@@ -6,7 +6,7 @@
 import logger from './utils/logger.js';
 import { isSupportedMailTabSender, isSupportedMailTabUrl } from './utils/mail-urls.mjs';
 import { DEFAULT_SETTINGS, normalizeStoredSettings, validateSettingsPatch } from './utils/settings-validation.mjs';
-import { MAX_WHITELIST_ENTRIES, normalizeWhitelist, normalizeWhitelistEntry } from './utils/whitelist-entry.mjs';
+import { MAX_WHITELIST_ENTRIES, normalizeWhitelistEntry } from './utils/whitelist-entry.mjs';
 import { checkSender } from './utils/message-auth.mjs';
 
 // State
