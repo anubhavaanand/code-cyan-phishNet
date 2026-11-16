@@ -24,8 +24,11 @@ import json, os, zipfile
 
 m = json.load(open('manifest.json'))
 
-# Event page instead of service worker (Firefox ignores `scripts` key in Chrome)
-m['background'] = { 'scripts': ['src/background-firefox.js'] }
+# Event page instead of service worker (Firefox ignores `scripts` key in Chrome).
+# The shared detection engine loads first as a classic script: it installs
+# globalThis.PhishNet, and the worker delegates its URL checks to it. Loading a
+# reduced copy in the worker was the F-078 gap.
+m['background'] = { 'scripts': ['src/utils/heuristic-detector.js', 'src/background-firefox.js'] }
 
 # 'offscreen' is not a known permission in Gecko and blocks installation
 m['permissions'] = [p for p in m['permissions'] if p != 'offscreen']

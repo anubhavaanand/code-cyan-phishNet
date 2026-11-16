@@ -168,24 +168,43 @@ function truncateText(text, maxTokens) {
   return text.length <= maxChars ? text : text.slice(0, maxChars);
 }
 
+/**
+ * Whether a URL is suspicious.
+ *
+ * Delegates to the shared detection engine (src/utils/heuristic-detector.js),
+ * which the Firefox background page loads as a classic script before this file.
+ * A reduced copy used to live here and lacked the homograph, lookalike-brand,
+ * dangerous-scheme, invisible-character and open-redirect checks, so phishing
+ * detection was materially weaker on Firefox than on Chrome.
+ */
+/**
+ * The inference guard, created lazily.
+ *
+ * The guard is a plain ES module loaded on first use, the same way the shared
+ * settings validator is, because this worker is a classic script.
+ */
+let inferenceGuardPromise = null;
+async function getInferenceGuard() {
+  if (!inferenceGuardPromise) {
+    inferenceGuardPromise = import(browser.runtime.getURL('src/utils/inference-guard.mjs'))
+      .then((mod) => mod.createInferenceGuard())
+      .catch((err) => {
+        // A failed import must not leave the promise rejected forever.
+        inferenceGuardPromise = null;
+        throw err;
+      });
+  }
+  return inferenceGuardPromise;
+}
+
 function isUrlSuspicious(url) {
-  try {
-    const parsed = new URL(url);
-    const domain = parsed.hostname.toLowerCase();
-    const tlds = ['.tk', '.ml', '.ga', '.cf', '.gq', '.xyz', '.top', '.club', '.work', '.date', '.loan', '.win'];
-    for (const t of tlds) if (domain.endsWith(t)) return true;
-    const shorteners = ['bit.ly', 'tinyurl.com', 'goo.gl', 't.co', 'ow.ly', 'is.gd', 'buff.ly', 'cutt.ly'];
-    for (const s of shorteners) if (domain === s || domain.endsWith('.' + s)) return true;
-    if (/^\d+\.\d+\.\d+\.\d+$/.test(domain)) return true;
-    if (domain.split('.').length > 4) return true;
-    const kws = ['secure', 'verify', 'account', 'login', 'signin', 'update', 'confirm'];
-    for (const kw of kws) {
-      if (domain.includes(kw) && !domain.startsWith(kw + '.') && !domain.endsWith('.' + kw + '.com')) return true;
-    }
-    return false;
-  } catch {
+  const detector = globalThis.PhishNet;
+  if (!detector || typeof detector.isUrlSuspicious !== 'function') {
+    // Fail closed: an unloaded detector must not silently accept every URL.
+    log.error('Detection engine unavailable; treating URL as suspicious');
     return true;
   }
+  return detector.isUrlSuspicious(url);
 }
 
 function generateReasons(predictions, text, threshold) {
@@ -211,7 +230,29 @@ async function runInference(emailData) {
   const started = performance.now();
   const text = truncateText(String(emailData?.text || ''), 512);
 
-  const results = await pipe(text, { topk: 4 });
+  // Race the model call against a timeout, mirroring the Chrome worker. The
+  // vendored Transformers.js build takes no AbortSignal, so the WASM work
+  // behind a timed-out promise keeps running — but the caller must not wait on
+  // it, and no result is produced for a run nobody is listening to.
+  const guard = await getInferenceGuard();
+  const run = guard.begin();
+  const work = (async () => {
+    const results = await pipe(text, { topk: 4 });
+    // Superseded or timed out while the model was running: stop here rather
+    // than spend time on post-processing whose result would be discarded.
+    if (!guard.isCurrent(run)) {
+      throw new Error('Inference superseded or abandoned');
+    }
+    return results;
+  })();
+
+  let results;
+  try {
+    results = await guard.run(work, run);
+  } finally {
+    guard.reset();
+  }
+
   const predictions = Array.isArray(results) ? results : [results];
   predictions.sort((a, b) => b.score - a.score);
   const top = predictions[0];
