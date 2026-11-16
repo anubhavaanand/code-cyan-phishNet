@@ -29,7 +29,7 @@ const DEFAULT_SETTINGS = {
   highlightLinks: true,
   showTooltip: true,
   theme: 'aloe',
-  whitelist: ['github.com', 'google.com', 'microsoft.com', 'amazon.com', 'apple.com']
+  whitelist: []
 };
 
 let settings = { ...DEFAULT_SETTINGS };

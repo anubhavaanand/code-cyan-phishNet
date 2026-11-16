@@ -61,7 +61,7 @@ describe('GET_STATUS / GET_SETTINGS', () => {
     assert.equal(res.sensitivityThreshold, 0.7);
     assert.equal(res.theme, 'auto');
     assert.ok(Array.isArray(res.whitelist));
-    assert.ok(res.whitelist.includes('github.com'));
+    assert.deepEqual(res.whitelist, [], 'new installations must not silently trust major email providers');
   });
 });
 
@@ -280,7 +280,7 @@ describe('content-script whitelist privacy', () => {
 
   it('withholds the whitelist from all content-script settings responses', async () => {
     const full = await send({ type: 'GET_SETTINGS' });
-    assert.ok(full.whitelist.includes('github.com'), 'popup retains its settings');
+    assert.ok(full.whitelist.includes('private.sender@example.com'), 'popup retains explicitly trusted senders');
 
     for (const [message, getSettings] of [
       [{ type: 'CONTENT_READY' }, response => response.settings],
@@ -313,11 +313,17 @@ describe('content-script whitelist privacy', () => {
     const known = await mock.send({
       type: 'CHECK_TRUSTED_SENDER', email: 'alice@github.com', domain: 'github.com',
     }, tabSender);
-    assert.deepEqual(known, { trusted: true });
+    assert.deepEqual(known, { trusted: false }, 'major providers are not trusted by default');
     const unknown = await mock.send({
       type: 'CHECK_TRUSTED_SENDER', email: 'alice@example.invalid', domain: 'example.invalid',
     }, tabSender);
     assert.deepEqual(unknown, { trusted: false });
+
+    await send({ type: 'ADD_WHITELIST', entry: 'github.com' });
+    assert.deepEqual(await mock.send({
+      type: 'CHECK_TRUSTED_SENDER', email: 'alice@github.com', domain: 'github.com',
+    }, tabSender), { trusted: true }, 'explicit user trust still bypasses scanning');
+    await send({ type: 'REMOVE_WHITELIST', entry: 'github.com' });
 
     // The popup page adds the entry; a tab may never do so. An extension page
     // gets the updated list back, since it renders the list it just changed.

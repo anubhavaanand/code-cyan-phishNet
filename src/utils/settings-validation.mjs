@@ -7,7 +7,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   highlightLinks: true,
   showTooltip: true,
   theme: 'auto',
-  whitelist: Object.freeze(['github.com', 'google.com', 'microsoft.com', 'amazon.com', 'apple.com']),
+  // Trust is a user decision. Major providers are not proof of sender authenticity.
+  whitelist: Object.freeze([]),
 });
 
 const booleanSettings = new Set(['autoScan', 'highlightLinks', 'showTooltip']);
