@@ -5,19 +5,13 @@
 
 import logger from './utils/logger.js';
 import { isSupportedMailTabUrl } from './utils/mail-urls.mjs';
+import { DEFAULT_SETTINGS, normalizeStoredSettings, validateSettingsPatch } from './utils/settings-validation.mjs';
 
 // State
 let offscreenDocumentCreated = false;
 let modelStatus = 'loading'; // 'loading' | 'ready' | 'error'
 let modelLoadProgress = 0;
-let settings = {
-  autoScan: true,
-  sensitivityThreshold: 0.7,
-  highlightLinks: true,
-  showTooltip: true,
-  theme: 'auto',
-  whitelist: ['github.com', 'google.com', 'microsoft.com', 'amazon.com', 'apple.com']
-};
+let settings = normalizeStoredSettings(DEFAULT_SETTINGS);
 
 const pendingInferenceCallbacks = new Map();
 
@@ -93,17 +87,13 @@ async function loadSettings() {
       'whitelist' // Read only to migrate and delete legacy synced data.
     ], (synced) => {
       chrome.storage.local.get('whitelist', (local) => {
-        const localWhitelist = Array.isArray(local?.whitelist) ? local.whitelist : null;
-        const legacyWhitelist = Array.isArray(synced?.whitelist) ? synced.whitelist : null;
-        settings = {
-          autoScan: synced?.autoScan ?? true,
-          sensitivityThreshold: synced?.sensitivityThreshold ?? 0.7,
-          highlightLinks: synced?.highlightLinks ?? true,
-          showTooltip: synced?.showTooltip ?? true,
-          theme: synced?.theme ?? 'auto',
-          whitelist: localWhitelist ?? legacyWhitelist ??
-            ['github.com', 'google.com', 'microsoft.com', 'amazon.com', 'apple.com']
-        };
+        // Prefer the local-only list (including a malformed one) over stale
+        // synced data, then validate all preferences before exposing them.
+        const hasLocalWhitelist = local?.whitelist !== undefined;
+        settings = normalizeStoredSettings({
+          ...synced,
+          ...(hasLocalWhitelist ? { whitelist: local.whitelist } : {})
+        });
 
         if (Object.hasOwn(synced ?? {}, 'whitelist')) {
           // Local data takes precedence. Delete the old synced copy only
@@ -240,10 +230,9 @@ async function handleIncomingMessage(message, sender) {
       return { modelStatus, progress: modelLoadProgress, settings };
 
     case 'UPDATE_SETTINGS':
-      if (message.settings && Object.hasOwn(message.settings, 'whitelist') &&
-          (!Array.isArray(message.settings.whitelist) ||
-           !message.settings.whitelist.every((entry) => typeof entry === 'string'))) {
-        return { success: false, error: 'whitelist must be an array of strings' };
+      {
+        const error = validateSettingsPatch(message.settings);
+        if (error) return { success: false, error };
       }
       await saveSettings(message.settings);
       broadcastSettingsUpdate();
