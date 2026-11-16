@@ -160,6 +160,7 @@
     // mutated the DOM, which retriggered the observer and scheduled another
     // pass — endless inference and badge churn on long threads.
     const discovered = [];
+    const discoveredIds = new Set();
     messageElements.forEach((element) => {
       // An element already handled is skipped even if its id was evicted from
       // the LRU set, so a long-lived DOM node is never scanned twice.
@@ -168,10 +169,15 @@
       const emailId = getEmailId(element);
       if (!emailId) return;
 
-      if (scannedEmailIds.has(emailId) || activeScans.has(emailId)) {
+      // A scan that is in progress can still be deferred (e.g. auto-scan is
+      // disabled). Do not permanently mark another copy of that message as
+      // handled before the first scan has actually completed.
+      if (activeScans.has(emailId) || discoveredIds.has(emailId)) return;
+      if (scannedEmailIds.has(emailId)) {
         scannedElements.add(element);
         return;
       }
+      discoveredIds.add(emailId);
       discovered.push({ element, emailId });
     });
 
@@ -243,6 +249,7 @@
     if (!element) return null;
     if (emailId && activeScans.has(emailId)) return null;
 
+    let completedScan = false;
     if (emailId) {
       activeScans.add(emailId);
     }
@@ -283,35 +290,47 @@
         };
         injectBadge(element, trustedResult);
         logScanRecord(emailContent, trustedResult);
+        completedScan = true;
         return trustedResult;
-      }
-
-      if (!emailContent.text || emailContent.text.length < 15) {
-        logger.debug('Email content too short, skipping scan');
-        return null;
       }
 
       if (!settings.autoScan && !emailId?.startsWith('manual-')) {
         return null;
       }
 
+      // Phishing messages can be one word, an image-only link, or even an
+      // empty body with a dangerous attachment. Sender and link heuristics
+      // must still run; only a truly empty, unidentified message is deferred.
+      const hasText = !!emailContent.text?.trim();
+      const hasSignals = hasText || !!emailContent.sender?.email ||
+        !!emailContent.sender?.domain || emailContent.links.length > 0 ||
+        emailContent.attachments.length > 0 || emailContent.hasFormElements;
+      if (!hasSignals) {
+        logger.debug('Email has no content or metadata to scan yet');
+        return null;
+      }
+
       // Run ML classification via background worker
       let mlResult = null;
-      try {
-        const response = await chrome.runtime.sendMessage({
-          type: 'SCAN_EMAIL',
-          payload: {
-            ...emailContent,
-            url: window.location.href,
-            emailId
-          }
-        });
+      // An empty string cannot be meaningfully classified by the text model.
+      // Still run heuristic detection below when sender/link signals exist.
+      if (hasText) {
+        try {
+          const response = await chrome.runtime.sendMessage({
+            type: 'SCAN_EMAIL',
+            payload: {
+              ...emailContent,
+              url: window.location.href,
+              emailId
+            }
+          });
 
-        if (response && response.success && response.result) {
-          mlResult = response.result;
+          if (response && response.success && response.result) {
+            mlResult = response.result;
+          }
+        } catch (mlError) {
+          logger.debug('ML inference unavailable, applying heuristic detection');
         }
-      } catch (mlError) {
-        logger.debug('ML inference unavailable, applying heuristic detection');
       }
 
       // Fallback to advanced heuristic detector.
@@ -352,6 +371,7 @@
       // Log locally for popup stats
       logScanRecord(emailContent, result);
 
+      completedScan = true;
       return result;
     } catch (error) {
       logger.error('Email scan error:', error);
@@ -359,6 +379,12 @@
     } finally {
       if (emailId) {
         activeScans.delete(emailId);
+        // A deferred scan is not a scan. Reconsider it when its DOM changes,
+        // or when auto-scan is enabled, instead of caching an absent verdict.
+        if (!completedScan) {
+          scannedEmailIds.delete(emailId);
+          scannedElements.delete(element);
+        }
       }
     }
   }
@@ -1119,6 +1145,9 @@
           activeSettings = { ...activeSettings, ...message.payload };
         }
         rerenderAll();
+        if (message.payload?.autoScan === true) {
+          debouncedCheckForNewEmails(0);
+        }
         break;
 
       case 'MODEL_STATUS':
