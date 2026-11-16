@@ -76,7 +76,15 @@ export const SENSITIVITY_LABELS = [
 ];
 
 export function getSensitivityLabel(value) {
-  const pct = Math.round(value * 100);
+  // A missing or corrupt value produced NaN, so every distance comparison was
+  // false and reduce returned the first preset while the UI showed 70%.
+  if (value === null || value === undefined) {
+    return SENSITIVITY_LABELS.find((s) => s.label === 'Standard') ?? SENSITIVITY_LABELS[0];
+  }
+  const pct = Math.round(Number(value) * 100);
+  if (!Number.isFinite(pct)) {
+    return SENSITIVITY_LABELS.find((s) => s.label === 'Standard') ?? SENSITIVITY_LABELS[0];
+  }
   return SENSITIVITY_LABELS.reduce((best, s) =>
     Math.abs(s.value - pct) < Math.abs(best.value - pct) ? s : best
   );

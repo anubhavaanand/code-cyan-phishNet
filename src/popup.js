@@ -208,12 +208,30 @@ function updateSliderFill(value) {
 /**
  * Load Local Stats & Scan History
  */
+/**
+ * Coerce stored scan stats into a complete, numeric record.
+ *
+ * Storage can hold a partial object from an older release, so each field is
+ * checked individually rather than trusting the key's presence.
+ */
+function normalizeStats(raw) {
+  const base = { total: 0, phishing: 0, safe: 0, uncertain: 0, trusted: 0 };
+  if (!raw || typeof raw !== 'object') return base;
+  for (const key of Object.keys(base)) {
+    const value = raw[key];
+    base[key] = Number.isFinite(value) && value >= 0 ? value : 0;
+  }
+  return base;
+}
+
 function loadStatsAndHistory() {
   if (!chrome.storage?.local) return;
 
   chrome.storage.local.get(['scanHistory', 'scanStats'], (data) => {
-    const stats = data.scanStats || { total: 0, phishing: 0, safe: 0, uncertain: 0, trusted: 0 };
-    const history = data.scanHistory || [];
+    // Validate per field, not per key: a stored object that is missing some
+    // fields used to render "undefined" and NaN instead of a number.
+    const stats = normalizeStats(data.scanStats);
+    const history = Array.isArray(data.scanHistory) ? data.scanHistory : [];
 
     if (statTotal) statTotal.textContent = String(stats.total);
     if (statBlocked) statBlocked.textContent = String(stats.phishing);
@@ -228,6 +246,9 @@ function loadStatsAndHistory() {
         historyList.appendChild(emptyDiv);
       } else {
         history.forEach(item => {
+          // A corrupt record can be null or a primitive; reading fields off it
+          // throws and aborts the whole list.
+          if (!item || typeof item !== 'object') return;
           const row = document.createElement('div');
           row.className = 'history-item';
 

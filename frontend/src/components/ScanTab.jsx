@@ -75,7 +75,7 @@ export function ScanTab({ onScanComplete }) {
           </div>
         </Card>
 
-        {result.reasons && result.reasons.length > 0 && (
+        {Array.isArray(result.reasons) && result.reasons.length > 0 && (
           <Card padding="md">
             <div style={{ fontSize: 'var(--pn-text-xs)', fontWeight: 700, color: 'var(--pn-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--pn-space-2)' }}>
               What we found

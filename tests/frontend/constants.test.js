@@ -87,6 +87,14 @@ describe('sensitivity labels', () => {
     expect(getSensitivityLabel(0.695).label).toBe('Standard');
   });
 
+  it('falls back to Standard for a missing or corrupt value', () => {
+    // Math.round(undefined * 100) is NaN, so every distance comparison is false
+    // and reduce returned the first preset while the UI showed 70%.
+    for (const value of [undefined, null, NaN, 'abc', {}, Infinity]) {
+      expect(getSensitivityLabel(value).label).toBe('Standard');
+    }
+  });
+
   it('returns the nearest label for an in-between value', () => {
     expect(getSensitivityLabel(0.73).label).toBe('Standard');
     expect(getSensitivityLabel(0.99).label).toBe('Very Strict');

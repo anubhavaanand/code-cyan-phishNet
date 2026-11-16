@@ -192,7 +192,7 @@ test('closing the modal removes its keydown listener', async () => {
   // ESC runs the document-level handler, which calls closeModal.
   const esc = h.callbacks['document:keydown'];
   assert.ok(esc, 'a keydown handler must be registered');
-  esc({ key: 'Escape' });
+  esc({ key: 'Escape', stopPropagation() {}, preventDefault() {} });
 
   assert.equal(h.documentKeydown.size, 0, 'closing the modal must remove the handler');
 });
