@@ -328,8 +328,28 @@ describe('content-script whitelist privacy', () => {
     await send({ type: 'REMOVE_WHITELIST', entry: 'private.invalid' });
   });
 
+  it('does not broadcast to tabs without the content script', async () => {
+    // chrome.tabs.query({}) returns every tab; sending to all of them is wasted
+    // work, since only mail tabs have the content script listening.
+    mock.tabsVisible.push(
+      { id: 91, url: 'https://mail.google.com/mail/u/0/' },
+      { id: 92, url: 'https://example.com/' },
+      { id: 93, url: 'https://mail.google.com.evil.example/' },
+      { id: 94, url: 'about:blank' }
+    );
+    try {
+      await send({ type: 'UPDATE_SETTINGS', settings: { showTooltip: true } });
+      const recipients = new Set(
+        mock.tabMessages.filter(m => m.message.type === 'SETTINGS_UPDATE').map(m => m.tabId)
+      );
+      assert.deepEqual([...recipients], [91]);
+    } finally {
+      mock.tabsVisible.length = 0;
+    }
+  });
+
   it('broadcasts only non-sensitive preferences to tabs', async () => {
-    mock.tabsVisible.push({ id: 91 });
+    mock.tabsVisible.push({ id: 91, url: 'https://mail.google.com/mail/u/0/' });
     try {
       await send({ type: 'UPDATE_SETTINGS', settings: { showTooltip: true } });
       const broadcast = mock.tabMessages.findLast(

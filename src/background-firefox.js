@@ -284,14 +284,38 @@ async function saveSettings(newSettings) {
 }
 
 // ---- broadcasts ----
-function broadcastToTabs(payload) {
-  browser.tabs.query({}).then((tabs) => {
-    for (const tab of tabs) {
-      if (tab.id != null) {
-        browser.tabs.sendMessage(tab.id, payload).catch(() => {});
-      }
-    }
-  }).catch(() => {});
+/**
+ * Broadcast to the tabs that have the content script.
+ *
+ * Firefox returns a promise from sendMessage, so a rejected send is awaited
+ * and counted rather than left unhandled — a tab that closed mid-broadcast is
+ * expected, not an error worth surfacing.
+ */
+let broadcastModulePromise = null;
+function getBroadcastModule() {
+  if (!broadcastModulePromise) {
+    broadcastModulePromise = import(browser.runtime.getURL('src/utils/mail-tab-broadcast.mjs'))
+      .catch((err) => {
+        broadcastModulePromise = null;
+        throw err;
+      });
+  }
+  return broadcastModulePromise;
+}
+
+async function broadcastToTabs(payload) {
+  try {
+    const { broadcastToMailTabs } = await getBroadcastModule();
+    await broadcastToMailTabs(
+      {
+        query: (q) => browser.tabs.query(q),
+        send: (tabId, msg) => browser.tabs.sendMessage(tabId, msg)
+      },
+      payload
+    );
+  } catch (err) {
+    log.debug('Broadcast failed:', err?.message);
+  }
 }
 
 function broadcastModelStatus(extra = {}) {

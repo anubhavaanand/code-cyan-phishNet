@@ -8,6 +8,7 @@ import { isSupportedMailTabSender, isSupportedMailTabUrl } from './utils/mail-ur
 import { DEFAULT_SETTINGS, normalizeStoredSettings, validateSettingsPatch } from './utils/settings-validation.mjs';
 import { MAX_WHITELIST_ENTRIES, normalizeWhitelistEntry } from './utils/whitelist-entry.mjs';
 import { checkSender } from './utils/message-auth.mjs';
+import { broadcastToMailTabs } from './utils/mail-tab-broadcast.mjs';
 
 // State
 let offscreenDocumentCreated = false;
@@ -18,6 +19,17 @@ let settings = normalizeStoredSettings(DEFAULT_SETTINGS);
 function tabSettings() {
   const { whitelist, ...visible } = settings;
   return visible;
+}
+
+/**
+ * The subset of settings the offscreen document actually reads.
+ *
+ * `runInference` used to forward the whole settings object, copying the
+ * trusted-sender whitelist into the offscreen context on every scan even
+ * though only the threshold is consulted there.
+ */
+function offscreenSettings() {
+  return { sensitivityThreshold: settings.sensitivityThreshold };
 }
 
 function settingsForSender(sender) {
@@ -135,15 +147,37 @@ async function loadSettings() {
 
 /**
  * Persist the trusted-sender whitelist locally, never in synced settings.
+ *
+ * Every callback checks `chrome.runtime.lastError`: the promise used to resolve
+ * with the in-memory settings regardless, so a failed write left the caller
+ * believing a setting was saved when it would revert on the next load.
  */
 async function saveSettings(newSettings) {
   settings = { ...settings, ...newSettings };
   const { whitelist, ...syncedSettings } = settings;
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     chrome.storage.local.set({ whitelist }, () => {
+      const localError = chrome.runtime.lastError;
+      if (localError) {
+        reject(new Error(`Could not save the whitelist: ${localError.message}`));
+        return;
+      }
       chrome.storage.sync.set(syncedSettings, () => {
+        const syncError = chrome.runtime.lastError;
+        if (syncError) {
+          reject(new Error(`Could not save settings: ${syncError.message}`));
+          return;
+        }
         // Also clean up any whitelist synced by an older extension version.
-        chrome.storage.sync.remove('whitelist', () => resolve(settings));
+        chrome.storage.sync.remove('whitelist', () => {
+          // A leftover synced whitelist is a migration nuisance, not a failed
+          // save: the settings themselves are already durable.
+          if (chrome.runtime.lastError) {
+            logger.debug('Could not remove legacy synced whitelist:',
+              chrome.runtime.lastError.message);
+          }
+          resolve(settings);
+        });
       });
     });
   });
@@ -413,50 +447,60 @@ function runInference(emailData) {
       }
     });
 
-    // Send payload to offscreen document
-    chrome.runtime.sendMessage({
-      type: 'RUN_INFERENCE',
-      requestId,
-      payload: emailData,
-      settings
-    }).catch((err) => {
-      clearTimeout(timer);
-      pendingInferenceCallbacks.delete(requestId);
-      reject(err);
-    });
+    // Send payload to offscreen document.
+    //
+    // Wrapped in a promise chain rather than calling `.catch` on the result:
+    // sendMessage can throw synchronously when the context is invalidated or
+    // the API is absent, and the executor would throw before any .catch was
+    // attached, leaving the pending entry and its 15s timer to expire on their
+    // own and report a misleading timeout.
+    Promise.resolve()
+      .then(() => chrome.runtime.sendMessage({
+        type: 'RUN_INFERENCE',
+        requestId,
+        payload: emailData,
+        // Only the fields reason generation reads. The trusted-sender
+        // whitelist is never used offscreen and must not cross contexts.
+        settings: offscreenSettings()
+      }))
+      .catch((err) => {
+        clearTimeout(timer);
+        pendingInferenceCallbacks.delete(requestId);
+        reject(err);
+      });
   });
 }
 
 /**
  * Broadcast settings update to all tabs
  */
+/**
+ * Broadcast settings to the tabs that have the content script.
+ *
+ * Only mail tabs are targeted: a message to every tab is dropped everywhere
+ * else, and the tab list grows with the user's browsing.
+ */
 function broadcastSettingsUpdate() {
-  chrome.tabs.query({}, (tabs) => {
-    tabs.forEach(tab => {
-      if (tab.id) {
-        chrome.tabs.sendMessage(tab.id, {
-          type: 'SETTINGS_UPDATE',
-          payload: tabSettings()
-        }).catch(() => {});
-      }
-    });
-  });
+  broadcastToMailTabs(
+    {
+      query: (q) => chrome.tabs.query(q),
+      send: (tabId, msg) => chrome.tabs.sendMessage(tabId, msg)
+    },
+    { type: 'SETTINGS_UPDATE', payload: tabSettings() }
+  ).catch((err) => logger.debug('Settings broadcast failed:', err?.message));
 }
 
 /**
  * Broadcast model status to all tabs
  */
 function broadcastModelStatus(extra = {}) {
-  chrome.tabs.query({}, (tabs) => {
-    tabs.forEach(tab => {
-      if (tab.id) {
-        chrome.tabs.sendMessage(tab.id, {
-          type: 'MODEL_STATUS',
-          payload: { status: modelStatus, progress: modelLoadProgress, ...extra }
-        }).catch(() => {});
-      }
-    });
-  });
+  broadcastToMailTabs(
+    {
+      query: (q) => chrome.tabs.query(q),
+      send: (tabId, msg) => chrome.tabs.sendMessage(tabId, msg)
+    },
+    { type: 'MODEL_STATUS', payload: { status: modelStatus, progress: modelLoadProgress, ...extra } }
+  ).catch((err) => logger.debug('Status broadcast failed:', err?.message));
 }
 
 // Lifecycle events
