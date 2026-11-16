@@ -43,6 +43,9 @@
   const MAX_TRACKED_IDS = 50;
   const MAX_EXTRACTED_ATTACHMENTS = 50;
   const MAX_EXTRACTED_LINKS = 100;
+  // Labels that mean "this is an attack". The threshold applies to all of
+  // them; a label outside this set is never downgraded.
+  const PHISHING_LABELS = new Set(['phishing_email', 'phishing_url']);
   const SCAN_DEBOUNCE_MS = 400;
   // Longest a scan may be deferred on a page that never stops mutating.
   const MAX_DEBOUNCE_WAIT_MS = 2000;
@@ -304,7 +307,11 @@
       }
 
       // Apply sensitivity threshold
-      if (result.confidence < settings.sensitivityThreshold && result.label === 'phishing_email') {
+      // Every phishing verdict is subject to the user's threshold, not just
+      // phishing_email. A phishing_url verdict used to bypass it entirely, so a
+      // user who set a high threshold still saw link verdicts they had asked to
+      // be treated as uncertain.
+      if (PHISHING_LABELS.has(result.label) && result.confidence < settings.sensitivityThreshold) {
         result.label = 'uncertain';
         result.reasons = result.reasons || [];
         result.reasons.unshift(`Confidence (${Math.round(result.confidence * 100)}%) is below sensitivity threshold (${Math.round(settings.sensitivityThreshold * 100)}%)`);
