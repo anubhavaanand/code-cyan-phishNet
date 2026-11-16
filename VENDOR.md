@@ -11,7 +11,7 @@ Neither is fetched at runtime, and neither is covered by npm — so nothing in
 
 | File | Size | Upstream | Version |
 | --- | --- | --- | --- |
-| `vendor/transformers.min.js` | 743,652 B | `@huggingface/transformers` | **3.0.0** |
+| `vendor/transformers.min.js` | 743,608 B | `@huggingface/transformers` | **3.0.0** |
 | `vendor/ort-wasm/ort-wasm-simd-threaded.jsep.mjs` | 46,838 B | `onnxruntime-web` | **1.20.0** |
 | `vendor/ort-wasm/ort-wasm-simd-threaded.jsep.wasm` | 21,649,119 B | `onnxruntime-web` | **1.20.0** |
 
@@ -30,7 +30,7 @@ SHA-256 of each file exactly as committed. `tests/package.test.js` asserts
 these, so replacing a bundle without updating this file fails CI.
 
 ```
-22266dbd81a41ed97699215a63a67e416662d70cc5f3e2d98215220d234c698d  vendor/transformers.min.js
+76726d6868963587407b2e13f671a368429e359979e16f822c5d6bee2d2dd38d  vendor/transformers.min.js
 3014f077d2d51ffd2174d3bcb72df482b897b81828cb3082d63e9c0a601fa3d4  vendor/ort-wasm/ort-wasm-simd-threaded.jsep.mjs
 f125583adb98686fe44ac652a924657479b48495fecb19c6e67d4f6ea84277df  vendor/ort-wasm/ort-wasm-simd-threaded.jsep.wasm
 ```

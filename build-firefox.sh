@@ -30,6 +30,11 @@ m = json.load(open('manifest.json'))
 # reduced copy in the worker was the F-078 gap.
 m['background'] = { 'scripts': ['src/utils/threat-lists.js', 'src/utils/heuristic-detector.js', 'src/background-firefox.js'] }
 
+# The shared manifest points the action at dist/popup.html, which is Chrome's
+# Vite build. Firefox ships the vanilla popup from src/, and this script never
+# runs Vite, so without the override the popup 404s.
+m.setdefault('action', {})['default_popup'] = 'src/popup.html'
+
 # 'offscreen' is not a known permission in Gecko and blocks installation
 m['permissions'] = [p for p in m['permissions'] if p != 'offscreen']
 

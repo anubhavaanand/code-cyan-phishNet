@@ -79,6 +79,10 @@
       messageListenerRegistered = true;
     }
 
+    // A hidden-then-restored tab needs its own sweep; the observer only sees
+    // mutations, not a tab that was in the background.
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     // Notify background that content script is ready
     chrome.runtime.sendMessage({ type: 'CONTENT_READY', provider: currentSelectors.provider }).catch(() => {});
   }
@@ -1123,22 +1127,62 @@
   }
 
   // Cleanup on unload
-  window.addEventListener('beforeunload', () => {
-    if (observer) observer.disconnect();
+  /**
+   * Tear down everything this script attached.
+   *
+   * Centralised so nothing is missed: the observer, the debounce timer, the
+   * modal's document-level keydown handler, the runtime message listener and
+   * the visibility listener all outlive this scope on an SPA navigation.
+   */
+  function teardown() {
+    if (observer) {
+      observer.disconnect();
+      observer = null;
+    }
     clearTimeout(scanDebounceTimer);
     scanDebounceTimer = null;
     scanDebounceStartedAt = 0;
+
     // The keydown listener lives on `document`, which outlives this script's
-    // scope on SPA navigations, so it must be removed explicitly.
+    // scope, so it must be removed explicitly.
     if (activeModalClose) {
       activeModalClose();
       activeModalClose = null;
     }
+
     if (messageListenerRegistered) {
       chrome.runtime.onMessage.removeListener(handleMessage);
       messageListenerRegistered = false;
     }
-  });
+
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+
+    // A scan still in flight when the document goes away cannot report back.
+    activeScans.clear();
+    renderedResults.clear();
+  }
+
+  /**
+   * Scan again when the tab becomes visible.
+   *
+   * The content script initialises at `document_idle`, which can be before a
+   * single-page app has rendered its message list; the mutation observer
+   * covers later inserts, but a tab that was simply hidden and restored needs
+   * a sweep of its own.
+   */
+  function onVisibilityChange() {
+    if (document.visibilityState !== 'visible') return;
+    if (!currentSelectors) return;
+    debouncedCheckForNewEmails();
+  }
+
+  window.addEventListener('beforeunload', teardown);
+
+  // A sweep after init catches content that rendered between document_idle and
+  // the first observer callback.
+  window.addEventListener('load', () => {
+    if (currentSelectors) checkForNewEmails();
+  }, { once: true });
 
   // Initialize
   if (document.readyState === 'loading') {

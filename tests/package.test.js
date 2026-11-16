@@ -173,7 +173,7 @@ describe('vendored dependencies', () => {
     .digest('hex');
 
   const BUNDLES = {
-    'vendor/transformers.min.js': '22266dbd81a41ed97699215a63a67e416662d70cc5f3e2d98215220d234c698d',
+    'vendor/transformers.min.js': '76726d6868963587407b2e13f671a368429e359979e16f822c5d6bee2d2dd38d',
     'vendor/ort-wasm/ort-wasm-simd-threaded.jsep.mjs': '3014f077d2d51ffd2174d3bcb72df482b897b81828cb3082d63e9c0a601fa3d4',
     'vendor/ort-wasm/ort-wasm-simd-threaded.jsep.wasm': 'f125583adb98686fe44ac652a924657479b48495fecb19c6e67d4f6ea84277df',
   };

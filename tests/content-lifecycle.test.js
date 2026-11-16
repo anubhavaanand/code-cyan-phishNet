@@ -27,7 +27,11 @@ test('content script unregisters its runtime listener when a mail tab unloads', 
     document: {
       readyState: 'loading',
       body: {},
+      visibilityState: 'visible',
       addEventListener: (event, handler) => { callbacks[event] = handler; },
+      removeEventListener: (event, handler) => {
+        if (callbacks[event] === handler) delete callbacks[event];
+      },
       querySelectorAll: () => []
     },
     location: { href: 'https://mail.google.com/mail/u/0/' },
