@@ -65,6 +65,7 @@
   const GREEK_REGEX   = /\p{Script=Greek}/u;
   const LATIN_REGEX   = /[a-zA-Z]/;
   const IP_HOSTNAME_REGEX = /^\d{1,3}(\.\d{1,3}){3}$/;
+  const IPV6_HOSTNAME_REGEX = /^\[[0-9a-f:.]+\]$/i;
 
   // zero-width joiner/non-joiner, word-joiner, BOM, soft hyphen
   const INVISIBLE_CHARS = new Set([0x200B,0x200C,0x200D,0x2060,0xFEFF,0xAD].map(c => String.fromCharCode(c)));
@@ -209,6 +210,29 @@ function isPrivateIpAddress(host) {
   if (a === 192 && b === 168) return true;         // 192.168.0.0/16
   if (a === 169 && b === 254) return true;         // link-local
   if (a === 0) return true;                        // "this host"
+  return false;
+}
+
+/**
+ * Detect local IPv6 literal destinations without treating every intranet URL
+ * as phishing. URL.hostname includes brackets for IPv6 in Chrome and Firefox.
+ */
+function isPrivateIpv6Address(host) {
+  const address = String(host).toLowerCase().replace(/^\[|\]$/g, '');
+  if (address === '::' || address === '::1') return true;
+
+  const first = address.startsWith('::') ? 0 : parseInt(address.split(':')[0], 16);
+  if ((first & 0xfe00) === 0xfc00) return true; // fc00::/7 (unique local)
+  if ((first & 0xffc0) === 0xfe80) return true; // fe80::/10 (link-local)
+
+  // Browsers canonicalize IPv4-mapped addresses into hex groups. Preserve the
+  // same private/public distinction as direct IPv4 links, so wrapping an IPv4
+  // address in ::ffff: cannot bypass the phishing check.
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(address);
+  if (mapped) {
+    const high = parseInt(mapped[1], 16), low = parseInt(mapped[2], 16);
+    return isPrivateIpAddress(`${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`);
+  }
   return false;
 }
 
@@ -551,6 +575,7 @@ function isPrivateIpAddress(host) {
     // router page, a dev server. Flagging those trains people to ignore the
     // warning. Only public IP literals stay suspicious.
     if (IP_HOSTNAME_REGEX.test(domain)) return !isPrivateIpAddress(domain);
+    if (IPV6_HOSTNAME_REGEX.test(domain)) return !isPrivateIpv6Address(domain);
     if (domain.split('.').length > 4) return true;
     if (domain.length > 75) return true;
     // hyphen abuse: 3+ hyphen-separated labels in the registrable SLD
@@ -593,6 +618,7 @@ function isPrivateIpAddress(host) {
       if (lowerDomain.endsWith(tld.startsWith('.') ? tld : '.' + tld)) return true;
     }
     if (IP_HOSTNAME_REGEX.test(lowerDomain)) return true;
+    if (IPV6_HOSTNAME_REGEX.test(lowerDomain)) return true;
     if (/[0-9]{4,}/.test(lowerDomain)) return true;
     return false;
   }
