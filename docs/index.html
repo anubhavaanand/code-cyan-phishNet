@@ -480,13 +480,21 @@ const canvas = document.getElementById('scene-canvas');
 const prefersReduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const isMobile = innerWidth < 720;
 
-const renderer = new THREE.WebGLRenderer({
-  canvas, antialias: !isMobile,
-  alpha: true,
-  powerPreference: 'high-performance'
-});
-// Decorative background: cap DPR hard — huge fill-rate savings, visually near-identical
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isMobile ? 1.2 : 1.25));
+// A module-scope throw here would abort the whole script, so the reveals and
+// the mini stages below would never run. The mini stages already guard this.
+let renderer = null;
+try {
+  renderer = new THREE.WebGLRenderer({
+    canvas, antialias: !isMobile,
+    alpha: true,
+    powerPreference: 'high-performance'
+  });
+  // Decorative background: cap DPR hard — huge fill-rate savings, visually near-identical
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isMobile ? 1.2 : 1.25));
+} catch (err) {
+  if (demoDebug) console.warn('[PhishNet] 3D hero unavailable:', err.message);
+  canvas?.remove();
+}
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x0b0f17, 0.055);
@@ -638,7 +646,7 @@ addEventListener('pointermove', e => {
 function resize() {
   const w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight;
   camera.aspect = w / h; camera.updateProjectionMatrix();
-  renderer.setSize(w, h, false);
+  renderer?.setSize(w, h, false);
 }
 addEventListener('resize', resize); resize();
 
@@ -979,7 +987,7 @@ function tick() {
   camera.position.y += ((1.5 - my * 1.1) - camera.position.y) * 0.04;
   camera.lookAt(0, -0.2, 0);
 
-  renderer.render(scene, camera);
+  renderer?.render(scene, camera);
 }
 
 /* Pause whenever the hero scrolls out of view OR the tab is hidden.
@@ -995,7 +1003,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function startLoop() {
-  if (running || prefersReduced || document.hidden || !heroInView) return;
+  if (running || prefersReduced || document.hidden || !heroInView || !renderer) return;
   running = true;
   rafId = requestAnimationFrame(tick);
 }
@@ -1008,7 +1016,7 @@ function stopLoop() {
 resize();
 if (prefersReduced) {
   // static single frame — no animation for reduced-motion users
-  renderer.render(scene, camera);
+  renderer?.render(scene, camera);
 } else {
   startLoop();
 }
