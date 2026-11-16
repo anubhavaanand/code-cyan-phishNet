@@ -442,6 +442,8 @@
     if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) return true;
     // URL normalizes default ports away; any remaining HTTP(S) port is nonstandard.
     if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.port) return true;
+    // Userinfo can disguise the actual destination host (brand.example@attacker.example).
+    if (parsed.username || parsed.password) return true;
     // HTTP does not protect the destination or message content in transit.
     if (parsed.protocol === 'http:') return true;
     const domain = parsed.hostname.toLowerCase();
