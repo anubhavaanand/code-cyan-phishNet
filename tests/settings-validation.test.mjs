@@ -39,6 +39,39 @@ describe('persisted settings validation', () => {
     assert.equal(DEFAULT_SETTINGS.whitelist.includes('safe-to-edit.example'), false);
   });
 
+  it('does not let one corrupt trust entry disable scanning', () => {
+    // A non-string entry used to reach the worker, where `item.toLowerCase()`
+    // threw inside scanEmail's try block. The scan returned null for every
+    // email, so protection silently stopped with no visible error.
+    for (const corrupt of [[123], [null], ['github.com', {}], ['github.com', ['nested']]]) {
+      const normalized = normalizeStoredSettings({ whitelist: corrupt });
+      assert.ok(Array.isArray(normalized.whitelist), JSON.stringify(corrupt));
+      // Every surviving entry must be safe to call toLowerCase() on.
+      for (const entry of normalized.whitelist) {
+        assert.equal(typeof entry, 'string');
+        assert.doesNotThrow(() => entry.toLowerCase().trim());
+      }
+    }
+  });
+
+  it('drops over-broad trust entries instead of disabling protection', () => {
+    for (const bypass of [['*'], ['*.com'], ['com'], ['@']]) {
+      const normalized = normalizeStoredSettings({ whitelist: bypass });
+      assert.ok(
+        normalized.whitelist.every((entry) => entry !== '*' && !entry.includes('*')),
+        `${JSON.stringify(bypass)} must not survive as a wildcard`
+      );
+      assert.ok(normalized.whitelist.every((entry) => entry.includes('.')), 'a bare label is too broad');
+    }
+  });
+
+  it('rejects over-broad entries in an incoming settings patch', () => {
+    for (const bypass of [['*'], ['*.com'], ['com'], ['@'], ['a b.com']]) {
+      const error = validateSettingsPatch({ whitelist: bypass });
+      assert.ok(error, `${JSON.stringify(bypass)} must be rejected`);
+    }
+  });
+
   it('rejects missing or non-object patches', () => {
     for (const patch of [null, undefined, [], 'autoScan', false]) {
       assert.ok(validateSettingsPatch(patch));

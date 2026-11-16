@@ -16,3 +16,21 @@ export function isSupportedMailTabUrl(value) {
     return false;
   }
 }
+
+/**
+ * Whether a message came from a supported mail tab.
+ *
+ * `chrome.runtime.sendMessage` reaches every extension context, so a message
+ * arriving with `sender.tab` must be checked against the same origins the
+ * content script is allowed to run on. A tab that cannot be matched is not a
+ * mail tab, whatever URL it reports.
+ *
+ * @param {unknown} sender the `sender` argument Chrome passes to a listener
+ * @returns {boolean}
+ */
+export function isSupportedMailTabSender(sender) {
+  if (!sender || typeof sender !== 'object') return false;
+  if (!sender.tab || typeof sender.tab !== 'object') return false;
+  const url = sender.tab.url || sender.url;
+  return isSupportedMailTabUrl(url);
+}
