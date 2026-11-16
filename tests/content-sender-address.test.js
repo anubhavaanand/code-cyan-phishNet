@@ -8,7 +8,9 @@ const path = require('node:path');
 // The function is private to its IIFE, so isolate its source without executing
 // the observer, service-worker messages, or presentation code.
 const source = readFileSync(path.resolve(__dirname, '../src/content.js'), 'utf8');
-const start = source.indexOf('  function extractEmailContent(element) {');
+// The extractor delegates to two helpers and a length constant, all defined
+// earlier in the same IIFE, so slice from the first of them.
+const start = source.indexOf('  /**\n   * Regions that hold metadata rather than message content.');
 const end = source.indexOf('\n  /**\n   * Extract links from email', start);
 assert.ok(start !== -1 && end > start, 'production extraction function should be present');
 const extracted = source.slice(start, end);
@@ -46,6 +48,7 @@ function extractSender({ name, address, nameEmail, emailAttr } = {}) {
     safeText: (el) => (el?.textContent ?? '').trim(),
     safeAttr: (el, attr) => el?.getAttribute(attr) ?? '',
     UTILITY_SELECTORS: { skipElements: [] },
+    BODY_TEXT_LIMIT: 12000,
     document: { querySelector: () => null },
     extractLinks: () => [],
     extractAttachments: () => []
