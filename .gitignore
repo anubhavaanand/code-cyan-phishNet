@@ -42,6 +42,8 @@ coverage/
 
 # Generated art not referenced by the README or the site.
 # Only assets/banner.gif and assets/phishnet_mountain_banner.gif ship.
+# banner.pixel.json is machine-generated pixel data, not source.
+assets/banner.pixel.json
 assets/banner.png
 assets/scenery.gif
 assets/scenery.png
