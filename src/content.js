@@ -26,8 +26,14 @@
   // State
   let currentSelectors = null;
   let observer = null;
+  // The close function of the currently open modal, so a reopen can remove the
+  // previous one's keydown listener instead of leaking it.
+  let activeModalClose = null;
   let messageListenerRegistered = false;
   let scanDebounceTimer = null;
+  // When the currently pending scan was first requested. A mutation after
+  // MAX_DEBOUNCE_WAIT_MS fires the scan instead of restarting the window.
+  let scanDebounceStartedAt = 0;
   let lastUrl = typeof location !== 'undefined' ? location.href : '';
   const activeScans = new Set();
   const scannedEmailIds = new Set();
@@ -38,6 +44,8 @@
   const MAX_EXTRACTED_ATTACHMENTS = 50;
   const MAX_EXTRACTED_LINKS = 100;
   const SCAN_DEBOUNCE_MS = 400;
+  // Longest a scan may be deferred on a page that never stops mutating.
+  const MAX_DEBOUNCE_WAIT_MS = 2000;
 
   /**
    * Initialize content script
@@ -98,8 +106,24 @@
    * Debounced check for new emails
    */
   function debouncedCheckForNewEmails(delay = SCAN_DEBOUNCE_MS) {
+    const now = Date.now();
+
+    // No scan is pending: open a fresh wait window.
+    if (scanDebounceTimer === null) scanDebounceStartedAt = now;
+
+    // The window is spent. Run now rather than push the scan further out.
+    if (now - scanDebounceStartedAt >= MAX_DEBOUNCE_WAIT_MS) {
+      clearTimeout(scanDebounceTimer);
+      scanDebounceTimer = null;
+      scanDebounceStartedAt = 0;
+      checkForNewEmails();
+      return;
+    }
+
     clearTimeout(scanDebounceTimer);
     scanDebounceTimer = setTimeout(() => {
+      scanDebounceTimer = null;
+      scanDebounceStartedAt = 0;
       checkForNewEmails();
     }, delay);
   }
@@ -606,8 +630,13 @@
    * Interactive Threat Breakdown Modal
    */
   function openThreatModal(result) {
-    const existing = document.getElementById('phishnet-modal-root');
-    if (existing) existing.remove();
+    // Tear the previous modal down properly. Removing its DOM node alone left
+    // its document-level keydown handler attached, so every reopen leaked one
+    // and ESC ran a stale close handler.
+    if (activeModalClose) {
+      activeModalClose();
+      activeModalClose = null;
+    }
 
     const backdrop = document.createElement('div');
     backdrop.id = 'phishnet-modal-root';
@@ -813,9 +842,11 @@
     function closeModal() {
       document.removeEventListener('keydown', onKeyEscape);
       backdrop.remove();
+      if (activeModalClose === closeModal) activeModalClose = null;
     }
 
     document.addEventListener('keydown', onKeyEscape);
+    activeModalClose = closeModal;
 
     (document.body || document.documentElement).appendChild(backdrop);
     document.getElementById('phishnetModalCloseBtn')?.addEventListener('click', closeModal);
@@ -905,6 +936,14 @@
   window.addEventListener('beforeunload', () => {
     if (observer) observer.disconnect();
     clearTimeout(scanDebounceTimer);
+    scanDebounceTimer = null;
+    scanDebounceStartedAt = 0;
+    // The keydown listener lives on `document`, which outlives this script's
+    // scope on SPA navigations, so it must be removed explicitly.
+    if (activeModalClose) {
+      activeModalClose();
+      activeModalClose = null;
+    }
     if (messageListenerRegistered) {
       chrome.runtime.onMessage.removeListener(handleMessage);
       messageListenerRegistered = false;
