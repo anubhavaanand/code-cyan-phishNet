@@ -212,6 +212,16 @@ function isPrivateIpAddress(host) {
   return false;
 }
 
+/** Local IPv6 ranges use the same exemption as private IPv4 links. */
+function isPrivateIpv6Address(host) {
+  const literal = host.slice(1, -1).toLowerCase();
+  if (literal === '::' || literal === '::1') return true;
+  const first = Number.parseInt(literal.split(':')[0], 16);
+  // fc00::/7 (unique local) and fe80::/10 (link local).
+  return Number.isFinite(first) &&
+    ((first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80);
+}
+
 /**
  * skeleton(str): fold str into its unambiguous ASCII form.
    * 'p\u0430ypal' -> 'paypal', 'g00gle' -> 'google'
@@ -551,6 +561,8 @@ function isPrivateIpAddress(host) {
     // router page, a dev server. Flagging those trains people to ignore the
     // warning. Only public IP literals stay suspicious.
     if (IP_HOSTNAME_REGEX.test(domain)) return !isPrivateIpAddress(domain);
+    // URL.hostname encloses a syntactically valid IPv6 literal in brackets.
+    if (domain.startsWith('[') && domain.endsWith(']')) return !isPrivateIpv6Address(domain);
     if (domain.split('.').length > 4) return true;
     if (domain.length > 75) return true;
     // hyphen abuse: 3+ hyphen-separated labels in the registrable SLD

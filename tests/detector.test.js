@@ -242,6 +242,30 @@ describe('URL analysis', () => {
     }
   });
 
+  test('flags public IPv6 address literals including compressed forms', () => {
+    for (const url of [
+      'https://[2606:4700:4700::1111]/',
+      'https://[2001:4860:4860:0:0:0:0:8888]/',
+      'https://[2606:4700:4700::1001]/'
+    ]) {
+      assert.equal(isUrlSuspicious(url), true, `${url} must be suspicious`);
+    }
+    const result = heuristicDetect({
+      subject: 'Verify now', text: 'Check this link', sender: {},
+      links: [{ href: 'https://[2606:4700:4700::1111]/login' }], attachments: []
+    });
+    assert.equal(result.links[0].suspicious, true);
+  });
+
+  test('does not flag local IPv6 literals without other risk signals', () => {
+    for (const url of [
+      'https://[::1]/', 'https://[::]/', 'https://[fc00::1]/',
+      'https://[fd12:3456::5]/', 'https://[fe80::1]/', 'https://[febf::1]/'
+    ]) {
+      assert.equal(isUrlSuspicious(url), false, `${url} is local-only`);
+    }
+  });
+
   test('treats an unparseable URL as malformed, not malicious', () => {
     // A browser refuses to navigate to a URL this parser rejects, so calling it
     // a phishing host is noise. Dangerous schemes and invisible characters are
