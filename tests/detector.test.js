@@ -161,6 +161,7 @@ describe('brand lookalike detection', () => {
 describe('isDomainSuspicious', () => {
   test('flags bare IP hosts', () => {
     assert.equal(isDomainSuspicious('192.168.1.1'), true);
+    assert.equal(isDomainSuspicious('[2001:db8::1]'), true);
   });
 
   test('accepts ordinary domains', () => {
@@ -239,6 +240,31 @@ describe('URL analysis', () => {
   test('still flags a public address literal', () => {
     for (const url of ['https://8.8.8.8/', 'https://1.1.1.1/', 'https://172.32.0.1/']) {
       assert.equal(isUrlSuspicious(url), true, `${url} must be suspicious`);
+    }
+  });
+
+  test('flags public IPv6 literals over HTTPS as well as cleartext HTTP', () => {
+    for (const url of [
+      'https://[2001:db8::1]/login',
+      'https://[2606:4700:4700::1111]/',
+      'http://[::1]/',
+      'http://[2001:db8::1]/',
+      'https://[::ffff:8.8.8.8]/'
+    ]) {
+      assert.equal(isUrlSuspicious(url), true, `${url} must be suspicious`);
+    }
+  });
+
+  test('spares loopback, unique-local, and link-local IPv6 over HTTPS', () => {
+    for (const url of [
+      'https://[::1]/',
+      'https://[::]/',
+      'https://[fc00::2]/',
+      'https://[fd12:3456::5]/',
+      'https://[fe80::1]/',
+      'https://[::ffff:192.168.1.1]/'
+    ]) {
+      assert.equal(isUrlSuspicious(url), false, `${url} is local, not a public phishing host`);
     }
   });
 
