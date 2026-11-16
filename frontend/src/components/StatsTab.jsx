@@ -4,14 +4,25 @@ import { StatCard, Card, EmptyState, Button, Icon } from '@/components';
 /**
  * StatsTab — scan history and aggregate stats.
  */
+/** Coerce a possibly-missing or corrupt value to a finite count. */
+const count = (value) => (Number.isFinite(value) && value >= 0 ? value : 0);
+
+/** Whether a stored history entry can be rendered. */
+const isRenderable = (item) => item && typeof item === 'object';
+
+/** A label from storage is only trusted when it is a string. */
+const labelOf = (item) => (typeof item?.label === 'string' ? item.label : '');
+
 export function StatsTab({ stats, history, onClear }) {
-  const safeCount = (stats.safe || 0) + (stats.trusted || 0);
+  const safe = stats && typeof stats === 'object' ? stats : {};
+  const entries = Array.isArray(history) ? history.filter(isRenderable) : [];
+  const safeCount = count(safe.safe) + count(safe.trusted);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--pn-space-3)', animation: 'pn-fade-up 0.3s var(--pn-ease-out) both' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--pn-space-2)' }}>
-        <StatCard icon="scan" label="Scanned" value={stats.total || 0} color="coral" delay={0} />
-        <StatCard icon="alert" label="Threats" value={stats.phishing || 0} color="rose" delay={0.08} />
+        <StatCard icon="scan" label="Scanned" value={count(safe.total)} color="coral" delay={0} />
+        <StatCard icon="alert" label="Threats" value={count(safe.phishing)} color="rose" delay={0.08} />
         <StatCard icon="shield" label="Safe" value={safeCount} color="green" delay={0.16} />
       </div>
 
@@ -25,7 +36,7 @@ export function StatsTab({ stats, history, onClear }) {
           <span style={{ fontSize: 'var(--pn-text-sm)', fontWeight: 700, color: 'var(--pn-text-secondary)' }}>
             Recent Scans
           </span>
-          {history.length > 0 && (
+          {entries.length > 0 && (
             <button
               onClick={onClear}
               style={{
@@ -45,7 +56,7 @@ export function StatsTab({ stats, history, onClear }) {
           )}
         </div>
 
-        {history.length === 0 ? (
+        {entries.length === 0 ? (
           <EmptyState
             icon={<Icon name="scan" size={28} />}
             title="No scans yet"
@@ -53,10 +64,11 @@ export function StatsTab({ stats, history, onClear }) {
           />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
-            {history.map((item, i) => {
-              const isPhish = item.label?.includes('phishing');
-              const isSafe = item.label?.includes('legitimate');
-              const isTrusted = item.label === 'trusted';
+            {entries.map((item, i) => {
+              const label = labelOf(item);
+              const isPhish = label.includes('phishing');
+              const isSafe = label.includes('legitimate');
+              const isTrusted = label === 'trusted';
               const color = isPhish ? 'rose' : (isTrusted ? 'gold' : (isSafe ? 'green' : 'amber'));
               const tagText = isTrusted ? 'Trusted' : (isPhish ? 'Phish' : (isSafe ? 'Safe' : '?'));
 

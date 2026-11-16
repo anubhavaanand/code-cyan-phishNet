@@ -40,6 +40,10 @@
   // Elements already handled. Ids are evicted from the LRU set above, so the
   // set alone cannot answer "has this exact DOM node been scanned?".
   const scannedElements = new WeakSet();
+  // Last verdict per element, so a settings change can re-render without
+  // re-running inference.
+  const renderedResults = new Map();
+  let activeSettings = { highlightLinks: true, sensitivityThreshold: 0.7 };
   const MAX_TRACKED_IDS = 50;
   // Long enough that a signature or footer does not push the real content past
   // the cut. The model still truncates to its own token budget.
@@ -328,22 +332,18 @@
         result.reasons.push('Only the first 100 links were examined; this message contains more links.');
       }
 
+      activeSettings = settings;
+
       // Apply sensitivity threshold
       // Every phishing verdict is subject to the user's threshold, not just
       // phishing_email. A phishing_url verdict used to bypass it entirely, so a
       // user who set a high threshold still saw link verdicts they had asked to
       // be treated as uncertain.
-      if (PHISHING_LABELS.has(result.label) && result.confidence < settings.sensitivityThreshold) {
-        result.label = 'uncertain';
-        result.reasons = result.reasons || [];
-        result.reasons.unshift(`Confidence (${Math.round(result.confidence * 100)}%) is below sensitivity threshold (${Math.round(settings.sensitivityThreshold * 100)}%)`);
-      }
+      const finalResult = applyThreshold(result, settings.sensitivityThreshold);
 
       // Inject UI indicators
-      injectBadge(element, result);
-      if (settings.highlightLinks) {
-        highlightLinks(element, result);
-      }
+      renderPresentation(element, finalResult, settings);
+      renderedResults.set(element, result);
 
       // Log locally for popup stats
       logScanRecord(emailContent, result);
@@ -356,6 +356,56 @@
       if (emailId) {
         activeScans.delete(emailId);
       }
+    }
+  }
+
+  /**
+   * Apply the user's sensitivity threshold to a verdict.
+   *
+   * Every phishing verdict is subject to it, not just phishing_email: a
+   * phishing_url verdict used to bypass it entirely.
+   */
+  function applyThreshold(result, threshold) {
+    if (!result || !PHISHING_LABELS.has(result.label)) return result;
+    if (result.confidence >= threshold) return result;
+    const downgraded = { ...result, label: 'uncertain', reasons: [...(result.reasons || [])] };
+    downgraded.reasons.unshift(
+      `Confidence (${Math.round(result.confidence * 100)}%) is below sensitivity threshold (${Math.round(threshold * 100)}%)`
+    );
+    return downgraded;
+  }
+
+  /**
+   * Draw the badge and link highlights for a verdict.
+   *
+   * Existing marks are cleared first so a re-render after a settings change
+   * replaces them rather than stacking.
+   */
+  function renderPresentation(element, result, settings) {
+    try {
+      element.querySelectorAll?.('.phishnet-badge, .phishnet-link-warning')
+        .forEach((node) => node.remove());
+    } catch (e) {}
+
+    injectBadge(element, result);
+    if (settings?.highlightLinks) {
+      highlightLinks(element, result);
+    }
+  }
+
+  /**
+   * Re-render every visible verdict against the current settings.
+   *
+   * A SETTINGS_UPDATE used to be ignored, so badges and link highlights stayed
+   * as they were until the page reloaded.
+   */
+  function rerenderAll() {
+    for (const [element, result] of renderedResults) {
+      if (!element?.isConnected) {
+        renderedResults.delete(element);
+        continue;
+      }
+      renderPresentation(element, applyThreshold(result, activeSettings.sensitivityThreshold), activeSettings);
     }
   }
 
@@ -919,21 +969,69 @@
       if (e.target === backdrop) closeModal();
     });
 
+    // The dialog is announced as modal, so focus moves into it on open and
+    // returns to whatever opened it on close. Without this a keyboard user
+    // keeps tabbing through the page behind the overlay.
+    const previouslyFocused = document.activeElement;
+
+    const focusableSelector = [
+      'button:not([disabled])',
+      'a[href]',
+      'input:not([disabled])',
+      'select:not([disabled])',
+      'textarea:not([disabled])',
+      '[tabindex]:not([tabindex="-1"])'
+    ].join(',');
+
+    function focusableNodes() {
+      try {
+        return [...card.querySelectorAll(focusableSelector)].filter(
+          (node) => node.offsetParent !== null || node === document.activeElement
+        );
+      } catch (e) {
+        return [];
+      }
+    }
+
     function onKeyEscape(e) {
-      if (e.key === 'Escape') closeModal();
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        closeModal();
+        return;
+      }
+      // Keep Tab inside the dialog.
+      if (e.key !== 'Tab') return;
+      const nodes = focusableNodes();
+      if (nodes.length === 0) return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (e.shiftKey && (document.activeElement === first || !card.contains(document.activeElement))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !card.contains(document.activeElement))) {
+        e.preventDefault();
+        first.focus();
+      }
     }
 
     function closeModal() {
       document.removeEventListener('keydown', onKeyEscape);
       backdrop.remove();
       if (activeModalClose === closeModal) activeModalClose = null;
+      // Restore focus to the badge that opened the dialog.
+      if (previouslyFocused && typeof previouslyFocused.focus === 'function' && previouslyFocused.isConnected) {
+        try { previouslyFocused.focus(); } catch (e) {}
+      }
     }
 
     document.addEventListener('keydown', onKeyEscape);
     activeModalClose = closeModal;
 
     (document.body || document.documentElement).appendChild(backdrop);
-    document.getElementById('phishnetModalCloseBtn')?.addEventListener('click', closeModal);
+
+    const closeButton = document.getElementById('phishnetModalCloseBtn') || closeBtn;
+    closeButton?.addEventListener('click', closeModal);
+    try { closeButton?.focus(); } catch (e) {}
   }
 
   /**
@@ -1011,6 +1109,14 @@
       }
 
       case 'SETTINGS_UPDATE':
+        // Re-render badges against the new settings; the stored verdicts are
+        // enough, so no inference is repeated.
+        if (message.payload && typeof message.payload === 'object') {
+          activeSettings = { ...activeSettings, ...message.payload };
+        }
+        rerenderAll();
+        break;
+
       case 'MODEL_STATUS':
         break;
     }
