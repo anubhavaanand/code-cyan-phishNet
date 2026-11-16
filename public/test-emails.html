@@ -305,7 +305,7 @@
         links
       };
 
-      const result = window.PhishNet ? window.PhishNet.heuristicDetect(emailContent, links) : { label: 'uncertain', confidence: 0.5, reasons: [] };
+      const result = window.PhishNet ? window.PhishNet.heuristicDetect(emailContent) : { label: 'uncertain', confidence: 0.5, reasons: [] };
 
       const resultBox = document.getElementById('liveResult');
       resultBox.classList.add('visible');
