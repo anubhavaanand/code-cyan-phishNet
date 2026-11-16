@@ -32,6 +32,7 @@
   const activeScans = new Set();
   const scannedEmailIds = new Set();
   const MAX_TRACKED_IDS = 50;
+  const MAX_EXTRACTED_LINKS = 100;
   const SCAN_DEBOUNCE_MS = 400;
 
   /**
@@ -239,6 +240,11 @@
 
       result.emailContent = emailContent;
 
+      if (emailContent.linksTruncated) {
+        result.reasons = Array.isArray(result.reasons) ? result.reasons : [];
+        result.reasons.push('Only the first 100 links were examined; this message contains more links.');
+      }
+
       // Apply sensitivity threshold
       if (result.confidence < settings.sensitivityThreshold && result.label === 'phishing_email') {
         result.label = 'uncertain';
@@ -393,7 +399,7 @@
     }
 
     // Extract links
-    const links = extractLinks(element);
+    const { links, truncated: linksTruncated } = extractLinks(element);
 
     // Extract attachments
     const attachments = extractAttachments(element);
@@ -415,6 +421,7 @@
       subject,
       body: bodyText,
       links,
+      linksTruncated,
       attachments,
       hasFormElements,
       sender: {
@@ -435,12 +442,13 @@
 
     const linkElements = element.querySelectorAll(linkQuery);
 
-    linkElements.forEach((linkEl) => {
+    for (let i = 0; i < Math.min(linkElements.length, MAX_EXTRACTED_LINKS); i++) {
+      const linkEl = linkElements[i];
       const href = linkEl.getAttribute('href');
-      if (!href) return;
+      if (!href) continue;
 
       if (!href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('mailto:')) {
-        return;
+        continue;
       }
 
       let text = (linkEl.textContent || '').trim();
@@ -449,9 +457,9 @@
       const isSuspicious = PhishNet.isUrlSuspicious ? PhishNet.isUrlSuspicious(href) : false;
 
       links.push({ href, text, suspicious: isSuspicious });
-    });
+    }
 
-    return links;
+    return { links, truncated: linkElements.length > MAX_EXTRACTED_LINKS };
   }
 
   /**
