@@ -32,6 +32,7 @@
   const activeScans = new Set();
   const scannedEmailIds = new Set();
   const MAX_TRACKED_IDS = 50;
+  const MAX_EXTRACTED_ATTACHMENTS = 50;
   const MAX_EXTRACTED_LINKS = 100;
   const SCAN_DEBOUNCE_MS = 400;
 
@@ -240,6 +241,10 @@
 
       result.emailContent = emailContent;
 
+      if (emailContent.attachmentsTruncated) {
+        result.reasons = Array.isArray(result.reasons) ? result.reasons : [];
+        result.reasons.push('Only the first 50 attachments were examined; this message contains more attachments.');
+      }
       if (emailContent.linksTruncated) {
         result.reasons = Array.isArray(result.reasons) ? result.reasons : [];
         result.reasons.push('Only the first 100 links were examined; this message contains more links.');
@@ -422,7 +427,8 @@
       body: bodyText,
       links,
       linksTruncated,
-      attachments,
+      attachments: attachments.items,
+      attachmentsTruncated: attachments.truncated,
       hasFormElements,
       sender: {
         name: senderName,
@@ -469,6 +475,7 @@
     const selectors = currentSelectors?.selectors || {};
     const attachments = [];
     const seenAttachments = new Set();
+    let truncated = false;
     const attSelectors = [
       selectors.attachmentNames,
       selectors.attachments,
@@ -477,9 +484,14 @@
       '.aZo'
     ].filter(Boolean);
 
-    attSelectors.forEach(sel => {
+    for (const sel of attSelectors) {
+      if (truncated) break;
       try {
-        element.querySelectorAll(sel).forEach(el => {
+        for (const el of element.querySelectorAll(sel)) {
+          if (attachments.length >= MAX_EXTRACTED_ATTACHMENTS) {
+            truncated = true;
+            break;
+          }
           const name = el.getAttribute('title') || el.getAttribute('download') || el.textContent || '';
           const clean = name.trim();
           // A message can contain different files with the same filename.
@@ -496,11 +508,11 @@
             seenAttachments.add(identity);
             attachments.push(clean);
           }
-        });
+        }
       } catch (e) {}
-    });
+    }
 
-    return attachments;
+    return { items: attachments, truncated };
   }
 
   /**
