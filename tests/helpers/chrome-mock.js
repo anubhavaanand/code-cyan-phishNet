@@ -20,6 +20,7 @@ function createChromeMock(options = {}) {
   const messageListeners = [];
   const sentMessages = [];
   const tabMessages = [];
+  const tabsVisible = [];
   const offscreenState = { exists: false, created: 0, closed: 0, createError: null };
 
   const clone = (v) => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
@@ -114,7 +115,7 @@ function createChromeMock(options = {}) {
 
     tabs: {
       query: (_query, cb) => {
-        const tabs = [];
+        const tabs = [...tabsVisible];
         if (typeof cb === 'function') return cb(tabs);
         return Promise.resolve(tabs);
       },
@@ -151,7 +152,7 @@ function createChromeMock(options = {}) {
    * Send a message and resolve with the worker's response.
    * Mirrors chrome.runtime.onMessage's async sendResponse contract.
    */
-  function send(message) {
+  function send(message, sender = { id: 'test' }) {
     return new Promise((resolve) => {
       let settled = false;
       const sendResponse = (value) => {
@@ -163,7 +164,7 @@ function createChromeMock(options = {}) {
 
       let keepOpen = false;
       for (const fn of [...messageListeners]) {
-        const ret = fn(message, { id: 'test' }, sendResponse);
+        const ret = fn(message, sender, sendResponse);
         if (ret === true) keepOpen = true;
       }
 
@@ -190,6 +191,7 @@ function createChromeMock(options = {}) {
     messageListeners,
     sentMessages,
     tabMessages,
+    tabsVisible,
     offscreenState,
     syncStore,
     localStore,

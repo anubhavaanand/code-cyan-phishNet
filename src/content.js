@@ -33,6 +33,7 @@
   const scannedEmailIds = new Set();
   const MAX_TRACKED_IDS = 50;
   const MAX_EXTRACTED_ATTACHMENTS = 50;
+  const MAX_EXTRACTED_LINKS = 100;
   const SCAN_DEBOUNCE_MS = 400;
 
   /**
@@ -163,8 +164,8 @@
     try {
       const emailContent = extractEmailContent(element);
 
-      // Check user settings & whitelist
-      let settings = { autoScan: true, sensitivityThreshold: 0.7, highlightLinks: true, showTooltip: true, whitelist: [] };
+      // Get non-sensitive preferences; whitelist decisions remain in the extension background.
+      let settings = { autoScan: true, sensitivityThreshold: 0.7, highlightLinks: true, showTooltip: true };
       try {
         const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
         if (response) settings = Object.assign(settings, response);
@@ -172,15 +173,17 @@
         logger.debug('Using default settings for scan');
       }
 
-      // Check Whitelist
       const senderEmail = emailContent.sender?.email?.toLowerCase() || '';
       const senderDomain = emailContent.sender?.domain?.toLowerCase() || '';
-      const whitelist = settings.whitelist || [];
-
-      const isWhitelisted = whitelist.some(item => {
-        const clean = item.toLowerCase().trim();
-        return clean && (clean === senderEmail || clean === senderDomain || senderEmail.endsWith('@' + clean));
-      });
+      let isWhitelisted = false;
+      try {
+        const trust = await chrome.runtime.sendMessage({
+          type: 'CHECK_TRUSTED_SENDER', email: senderEmail, domain: senderDomain
+        });
+        isWhitelisted = trust?.trusted === true;
+      } catch (error) {
+        logger.debug('Trusted sender lookup unavailable; scanning normally');
+      }
 
       if (isWhitelisted) {
         const trustedResult = {
@@ -241,6 +244,10 @@
       if (emailContent.attachmentsTruncated) {
         result.reasons = Array.isArray(result.reasons) ? result.reasons : [];
         result.reasons.push('Only the first 50 attachments were examined; this message contains more attachments.');
+      }
+      if (emailContent.linksTruncated) {
+        result.reasons = Array.isArray(result.reasons) ? result.reasons : [];
+        result.reasons.push('Only the first 100 links were examined; this message contains more links.');
       }
 
       // Apply sensitivity threshold
@@ -330,6 +337,11 @@
       '[email]', '[data-email]', '.sender', '.from', '[data-testid="message-header-sender-name"]'
     ].filter(Boolean);
     const senderEl = safeQuery(element, senderSelectors, 'Sender');
+    // Outlook renders display names and addresses in separate sibling nodes.
+    // Resolve the address independently, even when the name selector matches.
+    const senderEmailEl = selectors.senderEmail
+      ? safeQuery(element, selectors.senderEmail, 'Sender email')
+      : null;
 
     if (senderEl) {
       senderName = safeText(senderEl);
@@ -342,6 +354,15 @@
       if (senderEmail) {
         const match = senderEmail.match(/@([^@\s>]+)/);
         if (match) senderDomain = match[1].toLowerCase();
+      }
+    }
+    if (senderEmailEl) {
+      const value = safeAttr(senderEmailEl, 'email') || safeAttr(senderEmailEl, 'data-email') ||
+        safeAttr(senderEmailEl, 'title') || safeText(senderEmailEl);
+      const match = value.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/);
+      if (match) {
+        senderEmail = match[0];
+        senderDomain = senderEmail.split('@')[1].toLowerCase();
       }
     }
 
@@ -383,7 +404,7 @@
     }
 
     // Extract links
-    const links = extractLinks(element);
+    const { links, truncated: linksTruncated } = extractLinks(element);
 
     // Extract attachments
     const attachments = extractAttachments(element);
@@ -405,6 +426,7 @@
       subject,
       body: bodyText,
       links,
+      linksTruncated,
       attachments: attachments.items,
       attachmentsTruncated: attachments.truncated,
       hasFormElements,
@@ -426,12 +448,13 @@
 
     const linkElements = element.querySelectorAll(linkQuery);
 
-    linkElements.forEach((linkEl) => {
+    for (let i = 0; i < Math.min(linkElements.length, MAX_EXTRACTED_LINKS); i++) {
+      const linkEl = linkElements[i];
       const href = linkEl.getAttribute('href');
-      if (!href) return;
+      if (!href) continue;
 
       if (!href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('mailto:')) {
-        return;
+        continue;
       }
 
       let text = (linkEl.textContent || '').trim();
@@ -440,9 +463,9 @@
       const isSuspicious = PhishNet.isUrlSuspicious ? PhishNet.isUrlSuspicious(href) : false;
 
       links.push({ href, text, suspicious: isSuspicious });
-    });
+    }
 
-    return links;
+    return { links, truncated: linkElements.length > MAX_EXTRACTED_LINKS };
   }
 
   /**

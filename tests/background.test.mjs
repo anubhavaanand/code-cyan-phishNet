@@ -68,6 +68,27 @@ describe('UPDATE_SETTINGS', () => {
     }
   });
 
+  it('rejects invalid scalar settings and unexpected keys without persisting them', async () => {
+    const before = await send({ type: 'GET_SETTINGS' });
+    const storedBefore = { ...mock.syncStore };
+    for (const invalid of [
+      { sensitivityThreshold: NaN },
+      { sensitivityThreshold: -0.1 },
+      { sensitivityThreshold: 1.1 },
+      { autoScan: 'false' },
+      { showTooltip: null },
+      { theme: 'unknown' },
+      { whitelist: ['valid.example', 42] },
+      { whitelist: ['  '] },
+      { extraneous: true },
+    ]) {
+      const res = await send({ type: 'UPDATE_SETTINGS', settings: invalid });
+      assert.equal(res.success, false, JSON.stringify(invalid));
+      assert.deepEqual(await send({ type: 'GET_SETTINGS' }), before);
+      assert.deepEqual(mock.syncStore, storedBefore);
+    }
+  });
+
   it('persists the change to storage.sync', async () => {
     const res = await send({ type: 'UPDATE_SETTINGS', settings: { autoScan: false, theme: 'dark' } });
     assert.equal(res.success, true);
@@ -239,5 +260,57 @@ describe('SCAN_CURRENT_TAB', () => {
     const res = await send({ type: 'SCAN_CURRENT_TAB' });
     assert.equal(res.success, false);
     assert.match(res.error, /No active tab/i);
+  });
+});
+
+
+describe('content-script whitelist privacy', () => {
+  const tabSender = { id: 'phishnet-test', tab: { id: 91, url: 'https://mail.google.com/mail/u/0/' } };
+
+  it('withholds the whitelist from all content-script settings responses', async () => {
+    const full = await send({ type: 'GET_SETTINGS' });
+    assert.ok(full.whitelist.includes('github.com'), 'popup retains its settings');
+
+    for (const [message, getSettings] of [
+      [{ type: 'CONTENT_READY' }, response => response.settings],
+      [{ type: 'GET_SETTINGS' }, response => response],
+      [{ type: 'GET_STATUS' }, response => response.settings],
+    ]) {
+      const response = await mock.send(message, tabSender);
+      assert.ok(getSettings(response).autoScan !== undefined);
+      assert.equal(Object.hasOwn(getSettings(response), 'whitelist'), false);
+    }
+  });
+
+  it('checks sender trust in the background without disclosing the list', async () => {
+    const known = await mock.send({
+      type: 'CHECK_TRUSTED_SENDER', email: 'alice@github.com', domain: 'github.com',
+    }, tabSender);
+    assert.deepEqual(known, { trusted: true });
+    const unknown = await mock.send({
+      type: 'CHECK_TRUSTED_SENDER', email: 'alice@example.invalid', domain: 'example.invalid',
+    }, tabSender);
+    assert.deepEqual(unknown, { trusted: false });
+
+    const added = await mock.send({ type: 'ADD_WHITELIST', entry: 'private.invalid' }, tabSender);
+    assert.equal(added.success, true);
+    assert.equal(Object.hasOwn(added, 'whitelist'), false);
+    assert.ok((await send({ type: 'GET_SETTINGS' })).whitelist.includes('private.invalid'));
+    await send({ type: 'REMOVE_WHITELIST', entry: 'private.invalid' });
+  });
+
+  it('broadcasts only non-sensitive preferences to tabs', async () => {
+    mock.tabsVisible.push({ id: 91 });
+    try {
+      await send({ type: 'UPDATE_SETTINGS', settings: { showTooltip: true } });
+      const broadcast = mock.tabMessages.findLast(
+        m => m.tabId === 91 && m.message.type === 'SETTINGS_UPDATE'
+      );
+      assert.ok(broadcast, 'tab should receive preferences update');
+      assert.equal(Object.hasOwn(broadcast.message.payload, 'whitelist'), false);
+      assert.equal(broadcast.message.payload.showTooltip, true);
+    } finally {
+      mock.tabsVisible.length = 0;
+    }
   });
 });

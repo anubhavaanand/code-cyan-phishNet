@@ -173,6 +173,17 @@ describe('isDomainSuspicious', () => {
 });
 
 describe('URL analysis', () => {
+  test('flags credentials disguised as a trustworthy hostname', () => {
+    for (const url of [
+      'https://www.paypal.com@portal-checkin.net/signin',
+      'https://github.com:password@otherwise-safe.example.org/',
+      'https://user@otherwise-safe.example.org/',
+    ]) {
+      assert.equal(isUrlSuspicious(url), true, url);
+    }
+    assert.equal(isUrlSuspicious('https://www.paypal.com/account'), false);
+  });
+
   test('flags nonstandard web ports even for otherwise trusted hosts', () => {
     for (const url of [
       'https://www.paypal.com:8443/account',
