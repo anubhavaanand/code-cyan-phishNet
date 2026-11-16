@@ -9,6 +9,7 @@ import { truncateText } from './utils/truncate-text.mjs';
 import { normalizePredictions, labelSpaceSize, labelTable } from './utils/model-labels.mjs';
 import { createInferenceGuard } from './utils/inference-guard.mjs';
 import { canSend, createNotifier } from './utils/background-notify.mjs';
+import { shouldHandle } from './utils/offscreen-messages.mjs';
 import { buildReasons } from './utils/reason-builder.mjs';
 import { warmupKey, isWarmed, markWarmed } from './utils/warmup-cache.mjs';
 // Side-effect import: installs globalThis.PhishNet (shared v1.1 detection
@@ -270,42 +271,41 @@ function generateReasons(predictions, text = '', settings = {}, structured = {})
 }
 
 /**
- * Handle messages from background
+ * Handle messages from background.
+ *
+ * This document owns exactly one message type, RUN_INFERENCE. Every other type
+ * belongs to the background worker, and `chrome.runtime.sendMessage` delivers
+ * to all contexts at once — so claiming a message it does not own would win the
+ * race against the real handler, since Chrome keeps the first `sendResponse` it
+ * sees. Returning false without responding leaves the message for its owner.
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || !message.type) return;
+  if (!shouldHandle(message, sender, chrome.runtime.id)) return false;
 
-  switch (message.type) {
-    case 'RUN_INFERENCE':
-      runInference(message.payload || {}, message.settings || {}, message.requestId)
-        .then(result => {
-          // A result for a superseded run is dropped here as well as inside
-          // runInference: the caller may have moved on since, and answering it
-          // would overwrite a newer scan's verdict.
-          if (!isLiveRequest(message.requestId)) return;
-          requestRuns.delete(message.requestId);
-          notify({
-            type: 'INFERENCE_RESULT',
-            requestId: message.requestId,
-            result
-          });
-        })
-        .catch(error => {
-          requestRuns.delete(message.requestId);
-          notify({
-            type: 'INFERENCE_ERROR',
-            requestId: message.requestId,
-            error: error.message
-          });
-        });
-      sendResponse({ success: true });
-      return true;
-    default:
-      // No other type is handled here. Returning true unconditionally used to
-      // keep the channel open with no response, which the caller would hang on.
-      sendResponse({ success: false, error: `Unsupported message type: ${message.type}` });
-      return false;
-  }
+  runInference(message.payload || {}, message.settings || {}, message.requestId)
+    .then(result => {
+      // A result for a superseded run is dropped here as well as inside
+      // runInference: the caller may have moved on since, and answering it
+      // would overwrite a newer scan's verdict.
+      if (!isLiveRequest(message.requestId)) return;
+      requestRuns.delete(message.requestId);
+      notify({
+        type: 'INFERENCE_RESULT',
+        requestId: message.requestId,
+        result
+      });
+    })
+    .catch(error => {
+      requestRuns.delete(message.requestId);
+      notify({
+        type: 'INFERENCE_ERROR',
+        requestId: message.requestId,
+        error: error.message
+      });
+    });
+
+  sendResponse({ success: true });
+  return true;
 });
 
 // Initialize on load
