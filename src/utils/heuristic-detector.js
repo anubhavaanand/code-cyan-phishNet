@@ -481,9 +481,25 @@
     // open-redirect parameters pointing off-host
     if (OPEN_REDIRECT_REGEX.test(raw) && /(https?%3a%2f%2f|https?:\/\/)/i.test(raw)) return true;
 
-    const keywords = ['secure','verify','account','login','signin','update','confirm','banking','credential'];
-    for (const kw of keywords) {
-      if (domain.includes(kw) && !domain.startsWith(kw + '.') && !domain.endsWith('.' + kw + '.com')) return true;
+    // A keyword only counts when it stands as its own label or as a
+    // hyphen/underscore-separated word. Plain substring matching flagged
+    // accountant.com (contains "account") and myaccount.example, which are
+    // ordinary domains that merely contain the word.
+    const KEYWORD_WORDS = ['secure', 'verify', 'account', 'login', 'signin', 'update', 'confirm', 'banking', 'credential'];
+    const labels = domain.split('.');
+    if (labels.length < 2) return false;
+    // The registrable label is the one just before the TLD; a keyword there
+    // means the domain *is* that keyword's own site (secure.com, account.com),
+    // which the old code also spared.
+    const registrable = labels[labels.length - 2];
+    for (const kw of KEYWORD_WORDS) {
+      if (registrable === kw) continue;
+      // A keyword anywhere else — a subdomain label or a compound registrable
+      // name such as secure-login.example.com — is a deception.
+      for (const label of labels.slice(0, -2)) {
+        if (label.split(/[-_]+/).includes(kw)) return true;
+      }
+      if (registrable.split(/[-_]+/).includes(kw)) return true;
     }
     return false;
   }
@@ -504,23 +520,38 @@
   /**
    * Display-name vs sender-domain impersonation:
    * "PayPal Service <random@mail.example>" is a classic combo-spoof.
+   *
+   * A brand must stand as a whole token, or open a camel-case compound such as
+   * "PayPalService". A bare substring match flagged "Purchaser" (contains
+   * "chase") and "groups" (contains "ups") — ordinary names and company words.
    */
   function detectDisplayNameImpersonation(sender) {
     if (!sender || !sender.name || !sender.domain) return null;
-    const name = String(sender.name).toLowerCase();
-    const tokens = name.split(/[^a-z0-9]+/).filter(t => t.length >= 4);
-    for (const token of tokens) {
-      const skel = skeleton(token);
-      for (const brand of BRAND_SET) {
-        if (skel === brand && !isOfficialBrandHost(sender.domain)) {
-          return { brand, reason: `Display name claims '${brand}' but mail originates from ${sender.domain}` };
-        }
-      }
-    }
-    // also catch raw brand substring in display name
+    if (isOfficialBrandHost(sender.domain)) return null;
+
+    const rawName = String(sender.name);
+    const lowerName = rawName.toLowerCase();
+    const words = rawName.split(/[^A-Za-z0-9]+/).filter(Boolean).map((w) => w.toLowerCase());
+    const domain = sender.domain;
+
     for (const brand of BRAND_SET) {
-      if (name.includes(brand) && !isOfficialBrandHost(sender.domain)) {
-        return { brand, reason: `Display name references '${brand}' but sent from unverified domain ${sender.domain}` };
+      // The name is exactly the brand: "Chase <x@random.example>".
+      if (words.includes(brand)) {
+        return { brand, reason: `Display name claims '${brand}' but mail originates from ${domain}` };
+      }
+
+      // A brand opening a camel-case compound: "PayPalService". The boundary
+      // must be a capital or a digit in the original text — "upside" and
+      // "upsell" stay legitimate.
+      if (lowerName.startsWith(brand) && /[A-Z0-9]/.test(rawName.charAt(brand.length))) {
+        return { brand, reason: `Display name claims '${brand}' but mail originates from ${domain}` };
+      }
+
+      // A lookalike token, e.g. "PayPa1" folded onto "paypal".
+      for (const word of words) {
+        if (word.length >= 4 && skeleton(word) === brand && word !== brand) {
+          return { brand, reason: `Display name claims '${brand}' but mail originates from ${domain}` };
+        }
       }
     }
     return null;
