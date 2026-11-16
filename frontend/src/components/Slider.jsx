@@ -31,9 +31,6 @@ export function Slider({ value, min, max, step, onChange, color = 'coral', track
         outline: 'none',
         cursor: 'pointer',
       }}
-      css={{
-        '&::-webkit-slider-thumb': {},
-      }}
     />
   );
 }

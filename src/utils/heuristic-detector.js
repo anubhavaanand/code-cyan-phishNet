@@ -31,6 +31,23 @@
     'hta','iso','img','lnk','jar','msi','ps1','reg','pif'
   ]);
 
+  // Scripts are common in legitimate mail — a developer sending a module, a
+  // config file — so a bare .js is not treated as dangerous on its own. It is
+  // still dangerous when it is disguised as a document (invoice.pdf.js), which
+  // the double-extension check below handles.
+  const SCRIPT_EXTENSIONS = new Set(['js', 'jse']);
+  const EXECUTABLE_EXTENSIONS = new Set(
+    [...DANGEROUS_EXTENSIONS].filter((e) => !SCRIPT_EXTENSIONS.has(e))
+  );
+
+  // Types that are safe to open, and therefore the ones worth disguising. Only
+  // a document type in front of a dangerous one is a deception.
+  const DOCUMENT_TYPES = new Set([
+    'pdf','doc','docx','xls','xlsx','ppt','pptx','txt','rtf','csv',
+    'jpg','jpeg','png','gif','bmp','webp','svg',
+    'zip','rar','7z','tar','gz'
+  ]);
+
   const CYRILLIC_REGEX = /\p{Script=Cyrillic}/u;
   const GREEK_REGEX   = /\p{Script=Greek}/u;
   const LATIN_REGEX   = /[a-zA-Z]/;
@@ -388,12 +405,21 @@
       .trim()
       .replace(/[. ]+$/g, '');
     const doubleExtMatch = lowerName.match(/\.([a-z0-9]+)\.([a-z0-9]+)$/i);
-    if (doubleExtMatch && DANGEROUS_EXTENSIONS.has(doubleExtMatch[2])) {
+    // A deceptive double extension needs a document/media type in front of the
+    // dangerous one (invoice.pdf.exe). A compound name like app.min.js is not
+    // deception — `min` is not something anyone is tricked into opening — so it
+    // falls through to the plain extension check below.
+    if (doubleExtMatch &&
+        DOCUMENT_TYPES.has(doubleExtMatch[1]) &&
+        DANGEROUS_EXTENSIONS.has(doubleExtMatch[2])) {
       return { filename, dangerous: true, reason: `Deceptive double extension detected: .${doubleExtMatch[1]}.${doubleExtMatch[2]}` };
     }
     const extMatch = lowerName.match(/\.([a-z0-9]+)$/i);
-    if (extMatch && DANGEROUS_EXTENSIONS.has(extMatch[1])) {
+    if (extMatch && EXECUTABLE_EXTENSIONS.has(extMatch[1])) {
       return { filename, dangerous: true, reason: `Executable or script attachment: .${extMatch[1]}` };
+    }
+    if (extMatch && SCRIPT_EXTENSIONS.has(extMatch[1])) {
+      return { filename, dangerous: false, reason: `Script attachment: .${extMatch[1]}` };
     }
     return { filename, dangerous: false };
   }
@@ -416,6 +442,8 @@
     if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) return true;
     // URL normalizes default ports away; any remaining HTTP(S) port is nonstandard.
     if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.port) return true;
+    // Userinfo can disguise the actual destination host (brand.example@attacker.example).
+    if (parsed.username || parsed.password) return true;
     // HTTP does not protect the destination or message content in transit.
     if (parsed.protocol === 'http:') return true;
     const domain = parsed.hostname.toLowerCase();
@@ -540,7 +568,16 @@
       'refund','tax','irs','government','legal','court'
     ];
     const fullText = `${subject} ${text}`.toLowerCase();
-    const foundUrgency = [...new Set(urgencyKeywords.filter(kw => fullText.includes(kw)))];
+    // Word-boundary match. `includes` fired `tax` on "taxi" and `account` on
+    // "accounting", inflating the urgency score on ordinary mail.
+    const foundUrgency = [...new Set(
+      urgencyKeywords.filter((kw) => {
+        if (!kw.includes(' ')) {
+          return new RegExp(`\\b${kw}\\b`, 'i').test(fullText);
+        }
+        return fullText.includes(kw);
+      })
+    )];
     if (foundUrgency.length > 0) {
       urgencyScore = Math.min(foundUrgency.length * 8, 40);
       reasons.push(`Urgency signals: ${foundUrgency.slice(0, 3).join(', ')}`);
@@ -571,6 +608,11 @@
           reasons.push(`Security persona from unverified domain: ${sender.email}`);
         }
       }
+
+      // Lookalike(45) + impersonation(34) + persona(25) can reach 104 against a
+      // documented cap of 45. The other three sub-scores are clamped; this one
+      // was not, so the Threat Inspector drew a bar past its own maximum.
+      senderTrustScore = Math.min(senderTrustScore, 45);
     }
 
     // ---- 3. link inspection ----
@@ -638,7 +680,9 @@
     }
 
     // ---- 5. content-level signals ----
-    if (text.includes('<form') || text.includes('<input')) {
+    // `text` is textContent, where tags never appear, so testing the text for
+    // '<form' could never fire. The content script counts the elements instead.
+    if (emailContent?.hasFormElements) {
       reasons.push('Interactive form elements inside email');
     }
     if (hasInvisible(text)) {

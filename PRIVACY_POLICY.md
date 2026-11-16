@@ -6,7 +6,15 @@
 PhishNet is a privacy-first browser extension that detects phishing emails using on-device machine learning. This policy explains what data we collect, how we use it, and your rights.
 
 ## Data Collection
-**PhishNet collects ZERO personal data.**
+**PhishNet collects ZERO personal data and transmits nothing off your device.**
+
+A small amount of scan metadata is kept *locally on your device only*, so the popup dashboard can show recent results:
+
+- Subject line (truncated to 80 characters) and sender address/domain
+- Classification result, confidence score, and timestamp
+- Only the 20 most recent scans are retained; older entries are discarded
+
+This history never leaves your browser: it is stored in `chrome.storage.local`, is not synced to your Google account, and is never sent to any server. You can clear it at any time from the Options page ("Clear History") or by uninstalling the extension.
 
 - No email content is ever transmitted, stored, or analyzed externally
 - No sender information, subject lines, or email bodies leave your browser
@@ -46,6 +54,7 @@ On first use, the extension downloads the ONNX model directly from Hugging Face:
 - **Model cache**: Managed by browser (clearable via Chrome settings → Clear browsing data)
 - **Non-sensitive preferences**: Stored in `chrome.storage.sync` (synced to your Google account, deletable)
 - **Trusted sender whitelist**: Stored only in `chrome.storage.local` on your device and not synced across devices; previous synced copies are removed during migration
+- **Scan history**: Subject line, sender, verdict, confidence, and timestamp for the 20 most recent scans, stored only in `chrome.storage.local` on your device. Not synced, not transmitted. Clearable via the Options page or by uninstalling
 - **No server-side storage** whatsoever
 
 ## Your Rights
@@ -62,9 +71,9 @@ Updates will be posted to the GitHub repository. Continued use after changes con
 
 ## Contact
 - **GitHub Issues**: https://github.com/anubhavaanand/code-cyan-phishNet/issues
-- **Email**: your.email@example.com
+- **Security concerns**: use GitHub Private Vulnerability Reporting (see [SECURITY.md](SECURITY.md)) — please do not open a public issue for a vulnerability
 
 ## Compliance
-- **GDPR**: No personal data processed → no GDPR obligations
-- **CCPA**: No sale of personal information → no CCPA obligations
+- **GDPR**: PhishNet processes personal data (email subject lines, sender addresses, and classification results) locally on your device for phishing detection. This local processing is still processing under GDPR, but no personal data is transmitted or stored externally beyond your device's local storage. You can clear your scan history at any time from the Options page or by uninstalling the extension.
+- **CCPA**: PhishNet does not sell personal information. Subject lines, sender addresses, and classification results are processed locally on your device and are never shared with third parties.
 - **Chrome Web Store**: Compliant with Developer Program Policies

@@ -33,6 +33,52 @@ const DEFAULT_SETTINGS = {
 };
 
 let settings = { ...DEFAULT_SETTINGS };
+const FIREFOX_THEMES = ['aloe', 'graphite', 'dusk'];
+const MAX_TRUSTED_SENDERS = 100;
+
+async function normalizedWhitelist(values) {
+  const { normalizeStoredSettings } = await import(browser.runtime.getURL('src/utils/settings.mjs'));
+  const defaults = { ...DEFAULT_SETTINGS, whitelist: [] };
+  return normalizeStoredSettings({ whitelist: values }, defaults, FIREFOX_THEMES).whitelist;
+}
+
+async function validatedSettingsPatch(patch) {
+  const { validateSettingsPatch } = await import(browser.runtime.getURL('src/utils/settings-validation.mjs'));
+  const error = validateSettingsPatch(patch, new Set(FIREFOX_THEMES));
+  if (error) return { error };
+  const valid = { ...patch };
+  if (Object.hasOwn(valid, 'whitelist')) {
+    const entries = await normalizedWhitelist(valid.whitelist);
+    if (entries.length !== valid.whitelist.length) {
+      return { error: 'Invalid or duplicate whitelist entry' };
+    }
+    valid.whitelist = entries;
+  }
+  return { settings: valid };
+}
+
+function tabSettings() {
+  const { whitelist, ...visible } = settings;
+  return visible;
+}
+
+function settingsForSender(sender) {
+  return sender?.tab ? tabSettings() : settings;
+}
+
+function isTrustedSender(email, domain) {
+  if (typeof email !== 'string' || typeof domain !== 'string' ||
+      email.length > 320 || domain.length > 255) return false;
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedDomain = domain.trim().toLowerCase();
+  return settings.whitelist.some(entry => {
+    if (typeof entry !== 'string') return false;
+    const item = entry.toLowerCase().trim();
+    return item && (item === normalizedEmail || item === normalizedDomain ||
+      normalizedEmail.endsWith('@' + item));
+  });
+}
+
 
 // ---- model wiring (Transformers.js v3, local vendor bundle) ----
 const MODEL_ID = 'onnx-community/phishing-email-detection-distilbert_v2.4.1-ONNX';
@@ -185,14 +231,8 @@ async function runInference(emailData) {
 // ---- settings ----
 async function loadSettings() {
   const got = await browser.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
-  settings = {
-    autoScan: got.autoScan ?? true,
-    sensitivityThreshold: got.sensitivityThreshold ?? 0.7,
-    highlightLinks: got.highlightLinks ?? true,
-    showTooltip: got.showTooltip ?? true,
-    theme: got.theme ?? 'aloe',
-    whitelist: Array.isArray(got.whitelist) ? got.whitelist : [...DEFAULT_SETTINGS.whitelist]
-  };
+  const { normalizeStoredSettings } = await import(browser.runtime.getURL('src/utils/settings.mjs'));
+  settings = normalizeStoredSettings(got, DEFAULT_SETTINGS, FIREFOX_THEMES);
   return settings;
 }
 
@@ -218,19 +258,19 @@ function broadcastModelStatus(extra = {}) {
 }
 
 function broadcastSettingsUpdate() {
-  broadcastToTabs({ type: 'SETTINGS_UPDATE', payload: settings });
+  broadcastToTabs({ type: 'SETTINGS_UPDATE', payload: tabSettings() });
 }
 
 // ---- message router (same contract as Chrome background) ----
-browser.runtime.onMessage.addListener((message) => {
+browser.runtime.onMessage.addListener((message, sender) => {
   if (!message || !message.type) return undefined;
-  return handleMessage(message); // returning a Promise = async sendResponse in FF
+  return handleMessage(message, sender); // returning a Promise = async sendResponse in FF
 });
 
-async function handleMessage(message) {
+async function handleMessage(message, sender) {
   switch (message.type) {
     case 'CONTENT_READY':
-      return { modelStatus, settings };
+      return { modelStatus, settings: settingsForSender(sender) };
 
     case 'SCAN_EMAIL': {
       if (modelStatus !== 'ready') {
@@ -246,36 +286,52 @@ async function handleMessage(message) {
     }
 
     case 'GET_SETTINGS':
-      return settings;
+      return settingsForSender(sender);
+
+    case 'CHECK_TRUSTED_SENDER':
+      return { trusted: isTrustedSender(message.email, message.domain) };
 
     case 'GET_MODEL_STATUS':
       return { status: modelStatus, progress: modelLoadProgress };
 
     case 'GET_STATUS':
-      return { modelStatus, progress: modelLoadProgress, settings };
+      return { modelStatus, progress: modelLoadProgress, settings: settingsForSender(sender) };
 
     case 'UPDATE_SETTINGS': {
-      settings = await saveSettings(message.settings || {});
+      const checked = await validatedSettingsPatch(message.settings);
+      if (checked.error) return { success: false, error: checked.error };
+      settings = await saveSettings(checked.settings);
       broadcastSettingsUpdate();
-      return { success: true, settings };
+      return { success: true, settings: settingsForSender(sender) };
     }
 
     case 'ADD_WHITELIST': {
-      const entry = String(message.entry || '').trim().toLowerCase();
-      if (entry && !settings.whitelist.includes(entry)) {
-        settings.whitelist.push(entry);
-        await saveSettings({ whitelist: settings.whitelist });
+      if (typeof message.entry !== 'string') {
+        return { success: false, error: 'Whitelist entry must be a string' };
+      }
+      const validated = await normalizedWhitelist([message.entry]);
+      if (validated.length !== 1) {
+        return { success: false, error: 'Invalid whitelist entry' };
+      }
+      const entry = validated[0];
+      if (!settings.whitelist.includes(entry)) {
+        if (settings.whitelist.length >= MAX_TRUSTED_SENDERS) {
+          return { success: false, error: 'Whitelist is full' };
+        }
+        await saveSettings({ whitelist: [...settings.whitelist, entry] });
         broadcastSettingsUpdate();
       }
-      return { success: true, whitelist: settings.whitelist };
+      return sender?.tab ? { success: true } : { success: true, whitelist: settings.whitelist };
     }
 
     case 'REMOVE_WHITELIST': {
-      const entry = String(message.entry || '').trim().toLowerCase();
-      settings.whitelist = settings.whitelist.filter((w) => w !== entry);
-      await saveSettings({ whitelist: settings.whitelist });
+      if (typeof message.entry !== 'string') {
+        return { success: false, error: 'Whitelist entry must be a string' };
+      }
+      const entry = message.entry.trim().toLowerCase();
+      settings = await saveSettings({ whitelist: settings.whitelist.filter((w) => w !== entry) });
       broadcastSettingsUpdate();
-      return { success: true, whitelist: settings.whitelist };
+      return sender?.tab ? { success: true } : { success: true, whitelist: settings.whitelist };
     }
 
     case 'CLEAR_HISTORY':

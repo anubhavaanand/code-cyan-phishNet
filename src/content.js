@@ -162,8 +162,8 @@
     try {
       const emailContent = extractEmailContent(element);
 
-      // Check user settings & whitelist
-      let settings = { autoScan: true, sensitivityThreshold: 0.7, highlightLinks: true, showTooltip: true, whitelist: [] };
+      // Get non-sensitive preferences; whitelist decisions remain in the extension background.
+      let settings = { autoScan: true, sensitivityThreshold: 0.7, highlightLinks: true, showTooltip: true };
       try {
         const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
         if (response) settings = Object.assign(settings, response);
@@ -171,15 +171,17 @@
         logger.debug('Using default settings for scan');
       }
 
-      // Check Whitelist
       const senderEmail = emailContent.sender?.email?.toLowerCase() || '';
       const senderDomain = emailContent.sender?.domain?.toLowerCase() || '';
-      const whitelist = settings.whitelist || [];
-
-      const isWhitelisted = whitelist.some(item => {
-        const clean = item.toLowerCase().trim();
-        return clean && (clean === senderEmail || clean === senderDomain || senderEmail.endsWith('@' + clean));
-      });
+      let isWhitelisted = false;
+      try {
+        const trust = await chrome.runtime.sendMessage({
+          type: 'CHECK_TRUSTED_SENDER', email: senderEmail, domain: senderDomain
+        });
+        isWhitelisted = trust?.trusted === true;
+      } catch (error) {
+        logger.debug('Trusted sender lookup unavailable; scanning normally');
+      }
 
       if (isWhitelisted) {
         const trustedResult = {
@@ -382,6 +384,16 @@
     // Extract attachments
     const attachments = extractAttachments(element);
 
+    // Interactive form elements are a phishing signal, but the detector only
+    // receives textContent, where tags never appear. Count them here and pass
+    // a boolean rather than testing the text for '<form'.
+    let hasFormElements = false;
+    try {
+      hasFormElements = !!bodyEl.querySelector?.('form, input, select, textarea');
+    } catch (e) {
+      hasFormElements = false;
+    }
+
     const fullText = `${subject}\n\n${bodyText}`.trim();
 
     return {
@@ -390,6 +402,7 @@
       body: bodyText,
       links,
       attachments,
+      hasFormElements,
       sender: {
         name: senderName,
         email: senderEmail,

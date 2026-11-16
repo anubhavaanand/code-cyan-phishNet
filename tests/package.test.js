@@ -117,6 +117,7 @@ describe('content security policy', () => {
     'script-src': [S('self'), S('wasm-unsafe-eval'), S('wasm-eval'), S('none'), S('inline-speculation-rules')],
     'object-src': [S('self'), S('none')],
     'worker-src': [S('self'), S('none')],
+    'style-src': [S('self'), S('unsafe-inline'), S('none')],
   };
 
   test('allows wasm but no remote script sources', () => {
@@ -132,6 +133,32 @@ describe('content security policy', () => {
 
   test('permits wasm-unsafe-eval for the ONNX runtime', () => {
     assert.ok(csp.includes("'wasm-unsafe-eval'"));
+  });
+});
+
+describe('vendored three.js', () => {
+  test('the vendored bundle is r160 and matches its recorded hash', () => {
+    const src = read('docs/vendor/three.module.js');
+    const rev = src.match(/REVISION\s*=\s*['\"]([^'\"]+)/);
+    assert.ok(rev, 'could not read the three.js revision');
+    assert.equal(rev[1], '160');
+
+    const crypto = require('node:crypto');
+    const hash = crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'docs/vendor/three.module.js'))).digest('hex');
+    assert.equal(hash, '76dea8151bc9352aef3528b4262e249b2604f62543828328db978d060d61a495');
+  });
+
+  test('VENDOR.md records the pin and the update path', () => {
+    const v = read('docs/vendor/VENDOR.md');
+    assert.match(v, /r160/);
+    assert.match(v, /76dea8151bc9352aef3528b4262e249b2604f62543828328db978d060d61a495/);
+    assert.match(v, /scripts\/update-three\.sh/);
+  });
+
+  test('the update script exists and refuses split builds', () => {
+    const script = read('scripts/update-three.sh');
+    assert.match(script, /three\.core\.js/);
+    assert.match(script, /Refusing to install automatically/);
   });
 });
 
@@ -210,6 +237,17 @@ describe('model provenance', () => {
 
   test('the revision pin is documented as deliberate', () => {
     assert.match(OFFSCREEN, /Pinned revision/);
+  });
+
+  test('the message listener answers unknown types instead of hanging', () => {
+    // The listener used to end with an unconditional `return true`, which left
+    // the channel open with no sendResponse for any type it did not handle.
+    assert.match(OFFSCREEN, /default:/, 'the switch needs a default case');
+    assert.match(
+      OFFSCREEN,
+      /Unsupported message type/,
+      'an unknown type must be answered with an error'
+    );
   });
 });
 

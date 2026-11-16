@@ -37,8 +37,11 @@
         return await fn();
       } catch (error) {
         if (attempt === maxAttempts) throw error;
-        
-        const delay = baseDelay * Math.pow(2, attempt - 1);
+
+        // Full jitter: several clients retrying at once would otherwise line up
+        // on the same millisecond and hit the service together.
+        const ceiling = baseDelay * Math.pow(2, attempt - 1);
+        const delay = Math.floor(Math.random() * ceiling);
         logger.warn(`Attempt ${attempt} failed, retrying in ${delay}ms:`, error.message);
         await new Promise(r => setTimeout(r, delay));
       }

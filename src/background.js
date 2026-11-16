@@ -5,25 +5,34 @@
 
 import logger from './utils/logger.js';
 import { isSupportedMailTabUrl } from './utils/mail-urls.mjs';
+import { DEFAULT_SETTINGS, normalizeStoredSettings, validateSettingsPatch } from './utils/settings-validation.mjs';
 
 // State
 let offscreenDocumentCreated = false;
 let modelStatus = 'loading'; // 'loading' | 'ready' | 'error'
 let modelLoadProgress = 0;
-let settings = {
-  autoScan: true,
-  sensitivityThreshold: 0.7,
-  highlightLinks: true,
-  showTooltip: true,
-  theme: 'auto',
-  whitelist: ['github.com', 'google.com', 'microsoft.com', 'amazon.com', 'apple.com']
-};
+let settings = normalizeStoredSettings(DEFAULT_SETTINGS);
 
-// A malformed stored preference must not disable phishing classification.
-function normalizeSensitivityThreshold(value) {
-  if (typeof value !== 'number' && typeof value !== 'string') return 0.7;
-  const parsed = typeof value === 'string' && !value.trim() ? NaN : Number(value);
-  return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0.7;
+function tabSettings() {
+  const { whitelist, ...visible } = settings;
+  return visible;
+}
+
+function settingsForSender(sender) {
+  return sender?.tab ? tabSettings() : settings;
+}
+
+function isTrustedSender(email, domain) {
+  if (typeof email !== 'string' || typeof domain !== 'string' ||
+      email.length > 320 || domain.length > 255) return false;
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedDomain = domain.trim().toLowerCase();
+  return settings.whitelist.some(entry => {
+    if (typeof entry !== 'string') return false;
+    const item = entry.toLowerCase().trim();
+    return item && (item === normalizedEmail || item === normalizedDomain ||
+      normalizedEmail.endsWith('@' + item));
+  });
 }
 
 const pendingInferenceCallbacks = new Map();
@@ -100,17 +109,13 @@ async function loadSettings() {
       'whitelist' // Read only to migrate and delete legacy synced data.
     ], (synced) => {
       chrome.storage.local.get('whitelist', (local) => {
-        const localWhitelist = Array.isArray(local?.whitelist) ? local.whitelist : null;
-        const legacyWhitelist = Array.isArray(synced?.whitelist) ? synced.whitelist : null;
-        settings = {
-          autoScan: synced?.autoScan ?? true,
-          sensitivityThreshold: normalizeSensitivityThreshold(synced?.sensitivityThreshold),
-          highlightLinks: synced?.highlightLinks ?? true,
-          showTooltip: synced?.showTooltip ?? true,
-          theme: synced?.theme ?? 'auto',
-          whitelist: localWhitelist ?? legacyWhitelist ??
-            ['github.com', 'google.com', 'microsoft.com', 'amazon.com', 'apple.com']
-        };
+        // Prefer the local-only list (including a malformed one) over stale
+        // synced data, then validate all preferences before exposing them.
+        const hasLocalWhitelist = local?.whitelist !== undefined;
+        settings = normalizeStoredSettings({
+          ...synced,
+          ...(hasLocalWhitelist ? { whitelist: local.whitelist } : {})
+        });
 
         if (Object.hasOwn(synced ?? {}, 'whitelist')) {
           // Local data takes precedence. Delete the old synced copy only
@@ -131,7 +136,6 @@ async function loadSettings() {
  */
 async function saveSettings(newSettings) {
   settings = { ...settings, ...newSettings };
-  settings.sensitivityThreshold = normalizeSensitivityThreshold(settings.sensitivityThreshold);
   const { whitelist, ...syncedSettings } = settings;
   return new Promise((resolve) => {
     chrome.storage.local.set({ whitelist }, () => {
@@ -211,7 +215,7 @@ async function handleIncomingMessage(message, sender) {
   switch (message.type) {
     // Content script / tab messages
     case 'CONTENT_READY':
-      return { modelStatus, settings };
+      return { modelStatus, settings: settingsForSender(sender) };
 
     case 'SCAN_EMAIL':
       if (!validScanPayload(message.payload)) {
@@ -223,8 +227,14 @@ async function handleIncomingMessage(message, sender) {
       }
 
       try {
-        // Do not forward links, attachments, sender or arbitrary extra fields.
-        const result = await runInference({ text: message.payload.text });
+        // Forward the sender and links the model's reason generation needs, but
+        // nothing else: the body, subject, attachments, and any other field
+        // stay out of the offscreen document. Both are already bounded by
+        // validScanPayload above.
+        const payload = { text: message.payload.text };
+        if (message.payload.sender !== undefined) payload.sender = message.payload.sender;
+        if (message.payload.links !== undefined) payload.links = message.payload.links;
+        const result = await runInference(payload);
         return { success: true, result };
       } catch (error) {
         logger.error('Inference error:', error);
@@ -232,24 +242,26 @@ async function handleIncomingMessage(message, sender) {
       }
 
     case 'GET_SETTINGS':
-      return settings;
+      return settingsForSender(sender);
+
+    case 'CHECK_TRUSTED_SENDER':
+      return { trusted: isTrustedSender(message.email, message.domain) };
 
     case 'GET_MODEL_STATUS':
       return { status: modelStatus, progress: modelLoadProgress };
 
     // Popup messages
     case 'GET_STATUS':
-      return { modelStatus, progress: modelLoadProgress, settings };
+      return { modelStatus, progress: modelLoadProgress, settings: settingsForSender(sender) };
 
     case 'UPDATE_SETTINGS':
-      if (message.settings && Object.hasOwn(message.settings, 'whitelist') &&
-          (!Array.isArray(message.settings.whitelist) ||
-           !message.settings.whitelist.every((entry) => typeof entry === 'string'))) {
-        return { success: false, error: 'whitelist must be an array of strings' };
+      {
+        const error = validateSettingsPatch(message.settings);
+        if (error) return { success: false, error };
       }
       await saveSettings(message.settings);
       broadcastSettingsUpdate();
-      return { success: true, settings };
+      return { success: true, settings: settingsForSender(sender) };
 
     case 'ADD_WHITELIST': {
       const entry = (message.entry || '').trim().toLowerCase();
@@ -258,7 +270,7 @@ async function handleIncomingMessage(message, sender) {
         await saveSettings({ whitelist: settings.whitelist });
         broadcastSettingsUpdate();
       }
-      return { success: true, whitelist: settings.whitelist };
+      return sender?.tab ? { success: true } : { success: true, whitelist: settings.whitelist };
     }
 
     case 'REMOVE_WHITELIST': {
@@ -266,7 +278,7 @@ async function handleIncomingMessage(message, sender) {
       settings.whitelist = settings.whitelist.filter(w => w !== entry);
       await saveSettings({ whitelist: settings.whitelist });
       broadcastSettingsUpdate();
-      return { success: true, whitelist: settings.whitelist };
+      return sender?.tab ? { success: true } : { success: true, whitelist: settings.whitelist };
     }
 
     case 'CLEAR_HISTORY': {
@@ -402,7 +414,7 @@ function broadcastSettingsUpdate() {
       if (tab.id) {
         chrome.tabs.sendMessage(tab.id, {
           type: 'SETTINGS_UPDATE',
-          payload: settings
+          payload: tabSettings()
         }).catch(() => {});
       }
     });

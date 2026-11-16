@@ -173,6 +173,17 @@ describe('isDomainSuspicious', () => {
 });
 
 describe('URL analysis', () => {
+  test('flags credentials disguised as a trustworthy hostname', () => {
+    for (const url of [
+      'https://www.paypal.com@portal-checkin.net/signin',
+      'https://github.com:password@otherwise-safe.example.org/',
+      'https://user@otherwise-safe.example.org/',
+    ]) {
+      assert.equal(isUrlSuspicious(url), true, url);
+    }
+    assert.equal(isUrlSuspicious('https://www.paypal.com/account'), false);
+  });
+
   test('flags nonstandard web ports even for otherwise trusted hosts', () => {
     for (const url of [
       'https://www.paypal.com:8443/account',
@@ -252,6 +263,34 @@ describe('URL analysis', () => {
     );
   });
 
+  test('flags interactive form elements reported by the content script', () => {
+    const base = {
+      subject: 'Hi', text: 'Please review the attached', sender: {},
+      links: [], attachments: []
+    };
+    assert.deepEqual(heuristicDetect(base).reasons, []);
+    assert.ok(
+      heuristicDetect({ ...base, hasFormElements: true }).reasons
+        .some((r) => /form elements/i.test(r))
+    );
+  });
+
+  test('matches urgency keywords on word boundaries only', () => {
+    const reasons = (t) => heuristicDetect({
+      subject: 'x', text: t, sender: {}, links: [], attachments: []
+    }).reasons;
+
+    // `includes` fired `tax` on "taxi" and `account` on "accounting".
+    assert.deepEqual(reasons('The taxi rank is on 5th'), []);
+    assert.deepEqual(reasons('Our accounting team prepared this'), []);
+
+    // Real signals still fire.
+    assert.ok(reasons('Verify your account now').some((r) => /urgency/i.test(r)));
+    assert.ok(reasons('Your tax refund is ready').some((r) => /urgency/i.test(r)));
+    // Multi-word phrases still match.
+    assert.ok(reasons('Limited time offer').some((r) => /urgency/i.test(r)));
+  });
+
   test('flags high-abuse TLDs', () => {
     assert.equal(isUrlSuspicious('http://paypal-login.tk/verify'), true);
     assert.equal(isUrlSuspicious('https://microsoft-support.xyz/update'), true);
@@ -319,6 +358,30 @@ describe('attachment analysis', () => {
     assert.equal(analyzeAttachment('Document.docx.vbs').dangerous, true);
   });
 
+  test('a compound name is not a deceptive double extension', () => {
+    // `min` is not a document type, so app.min.js is a normal compound name,
+    // not an attempt to disguise an executable.
+    const a = analyzeAttachment('app.min.js');
+    assert.doesNotMatch(a.reason, /double extension/i);
+    assert.match(a.reason, /script attachment/i);
+
+    assert.doesNotMatch(analyzeAttachment('bundle.min.js').reason, /double extension/i);
+  });
+
+  test('a bare script attachment is not dangerous on its own', () => {
+    // .js is common in legitimate mail (a module, a config file), so it does
+    // not raise the risk score by itself.
+    assert.equal(analyzeAttachment('app.js').dangerous, false);
+    assert.equal(analyzeAttachment('app.min.js').dangerous, false);
+    assert.equal(analyzeAttachment('bundle.js').dangerous, false);
+  });
+
+  test('a script disguised as a document is still caught', () => {
+    const a = analyzeAttachment('invoice.pdf.js');
+    assert.equal(a.dangerous, true);
+    assert.match(a.reason, /double extension/i);
+  });
+
   test('flags directly executable extensions', () => {
     assert.equal(analyzeAttachment('payment_receipt.iso').dangerous, true);
     assert.equal(analyzeAttachment('runme.scr').dangerous, true);
@@ -382,6 +445,27 @@ describe('heuristicDetect — classification', () => {
     assert.equal(result.links[0].suspicious, false);
     assert.equal(result.links[1].suspicious, false);
     assert.equal(result.links[2].suspicious, false);
+  });
+
+  test('clamps every sub-score to its documented cap', () => {
+    // A maximally hostile message: lookalike(45) + impersonation(34) + persona(25)
+    // would reach 104 against a documented cap of 45.
+    const r = heuristicDetect({
+      subject: 'Verify your account',
+      text: 'Act now, limited time',
+      sender: {
+        name: 'PayPal Security',
+        email: 'security@paypa1-secure.tk',
+        domain: 'paypa1-secure.tk'
+      },
+      links: [{ href: 'http://paypa1-secure.tk/login' }],
+      attachments: [{ name: 'invoice.pdf.exe' }]
+    });
+    const s = r.signals;
+    assert.ok(s.senderTrustScore <= 45, `trust ${s.senderTrustScore} over cap`);
+    assert.ok(s.urgencyScore <= 40, `urgency ${s.urgencyScore} over cap`);
+    assert.ok(s.linkRiskScore <= 45, `links ${s.linkRiskScore} over cap`);
+    assert.ok(s.attachmentRiskScore <= 50, `attachments ${s.attachmentRiskScore} over cap`);
   });
 
   test('flags credential phishing with urgency and a bad link', () => {

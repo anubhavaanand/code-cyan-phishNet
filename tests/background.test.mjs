@@ -57,19 +57,6 @@ describe('GET_STATUS / GET_SETTINGS', () => {
 });
 
 describe('UPDATE_SETTINGS', () => {
-  it('normalizes invalid thresholds before persisting them', async () => {
-    for (const [input, expected] of [
-      [-3, 0], [4, 1], ['0.42', 0.42], ['2', 1],
-      ['not-a-number', 0.7], ['', 0.7], [null, 0.7], [Infinity, 0.7], [{}, 0.7]
-    ]) {
-      const res = await send({ type: 'UPDATE_SETTINGS', settings: { sensitivityThreshold: input } });
-      assert.equal(res.success, true);
-      assert.equal(res.settings.sensitivityThreshold, expected);
-      assert.equal(mock.syncStore.sensitivityThreshold, expected);
-    }
-    await send({ type: 'UPDATE_SETTINGS', settings: { sensitivityThreshold: 0.7 } });
-  });
-
   it('rejects malformed whitelist updates without corrupting settings or storage', async () => {
     const before = (await send({ type: 'GET_SETTINGS' })).whitelist;
     const storedBefore = mock.localStore.whitelist;
@@ -78,6 +65,27 @@ describe('UPDATE_SETTINGS', () => {
       assert.equal(res.success, false, `rejected ${JSON.stringify(invalid)}`);
       assert.deepEqual((await send({ type: 'GET_SETTINGS' })).whitelist, before);
       assert.deepEqual(mock.localStore.whitelist, storedBefore);
+    }
+  });
+
+  it('rejects invalid scalar settings and unexpected keys without persisting them', async () => {
+    const before = await send({ type: 'GET_SETTINGS' });
+    const storedBefore = { ...mock.syncStore };
+    for (const invalid of [
+      { sensitivityThreshold: NaN },
+      { sensitivityThreshold: -0.1 },
+      { sensitivityThreshold: 1.1 },
+      { autoScan: 'false' },
+      { showTooltip: null },
+      { theme: 'unknown' },
+      { whitelist: ['valid.example', 42] },
+      { whitelist: ['  '] },
+      { extraneous: true },
+    ]) {
+      const res = await send({ type: 'UPDATE_SETTINGS', settings: invalid });
+      assert.equal(res.success, false, JSON.stringify(invalid));
+      assert.deepEqual(await send({ type: 'GET_SETTINGS' }), before);
+      assert.deepEqual(mock.syncStore, storedBefore);
     }
   });
 
@@ -203,7 +211,7 @@ describe('SCAN_EMAIL gating', () => {
     assert.equal(typeof res.result.label, 'string');
   });
 
-  it('forwards only bounded text while accepting fields at their limits', async () => {
+  it('forwards bounded text, sender, and links while accepting fields at their limits', async () => {
     const payload = {
       text: 'x'.repeat(32768), subject: 's'.repeat(1024),
       body: 'b'.repeat(32768),
@@ -215,7 +223,22 @@ describe('SCAN_EMAIL gating', () => {
     const res = await send({ type: 'SCAN_EMAIL', payload });
     assert.equal(res.success, true);
     const forwarded = mock.sentMessages.filter(m => m.type === 'RUN_INFERENCE').at(-1);
-    assert.deepEqual(forwarded.payload, { text: payload.text });
+    // The model needs the sender and the real hrefs to explain a verdict; the
+    // body, subject, attachments, and unknown fields stay behind.
+    assert.deepEqual(forwarded.payload, {
+      text: payload.text,
+      sender: payload.sender,
+      links: payload.links
+    });
+    assert.equal('attachments' in forwarded.payload, false);
+    assert.equal('unexpectedNestedField' in forwarded.payload, false);
+  });
+
+  it('omits an absent sender and link list rather than sending empty values', async () => {
+    const res = await send({ type: 'SCAN_EMAIL', payload: { text: 'plain body' } });
+    assert.equal(res.success, true);
+    const forwarded = mock.sentMessages.filter(m => m.type === 'RUN_INFERENCE').at(-1);
+    assert.deepEqual(forwarded.payload, { text: 'plain body' });
   });
 });
 
@@ -237,5 +260,57 @@ describe('SCAN_CURRENT_TAB', () => {
     const res = await send({ type: 'SCAN_CURRENT_TAB' });
     assert.equal(res.success, false);
     assert.match(res.error, /No active tab/i);
+  });
+});
+
+
+describe('content-script whitelist privacy', () => {
+  const tabSender = { id: 'phishnet-test', tab: { id: 91, url: 'https://mail.google.com/mail/u/0/' } };
+
+  it('withholds the whitelist from all content-script settings responses', async () => {
+    const full = await send({ type: 'GET_SETTINGS' });
+    assert.ok(full.whitelist.includes('github.com'), 'popup retains its settings');
+
+    for (const [message, getSettings] of [
+      [{ type: 'CONTENT_READY' }, response => response.settings],
+      [{ type: 'GET_SETTINGS' }, response => response],
+      [{ type: 'GET_STATUS' }, response => response.settings],
+    ]) {
+      const response = await mock.send(message, tabSender);
+      assert.ok(getSettings(response).autoScan !== undefined);
+      assert.equal(Object.hasOwn(getSettings(response), 'whitelist'), false);
+    }
+  });
+
+  it('checks sender trust in the background without disclosing the list', async () => {
+    const known = await mock.send({
+      type: 'CHECK_TRUSTED_SENDER', email: 'alice@github.com', domain: 'github.com',
+    }, tabSender);
+    assert.deepEqual(known, { trusted: true });
+    const unknown = await mock.send({
+      type: 'CHECK_TRUSTED_SENDER', email: 'alice@example.invalid', domain: 'example.invalid',
+    }, tabSender);
+    assert.deepEqual(unknown, { trusted: false });
+
+    const added = await mock.send({ type: 'ADD_WHITELIST', entry: 'private.invalid' }, tabSender);
+    assert.equal(added.success, true);
+    assert.equal(Object.hasOwn(added, 'whitelist'), false);
+    assert.ok((await send({ type: 'GET_SETTINGS' })).whitelist.includes('private.invalid'));
+    await send({ type: 'REMOVE_WHITELIST', entry: 'private.invalid' });
+  });
+
+  it('broadcasts only non-sensitive preferences to tabs', async () => {
+    mock.tabsVisible.push({ id: 91 });
+    try {
+      await send({ type: 'UPDATE_SETTINGS', settings: { showTooltip: true } });
+      const broadcast = mock.tabMessages.findLast(
+        m => m.tabId === 91 && m.message.type === 'SETTINGS_UPDATE'
+      );
+      assert.ok(broadcast, 'tab should receive preferences update');
+      assert.equal(Object.hasOwn(broadcast.message.payload, 'whitelist'), false);
+      assert.equal(broadcast.message.payload.showTooltip, true);
+    } finally {
+      mock.tabsVisible.length = 0;
+    }
   });
 });
