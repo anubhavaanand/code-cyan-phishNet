@@ -21,7 +21,16 @@ await import('../src/background.js');
 await mock.flush();
 await mock.flush();
 
-const send = (message) => mock.send(message);
+const send = (message, sender) => mock.send(message, sender);
+
+/**
+ * A content script's sender.
+ *
+ * `chrome.runtime.sendMessage` reaches every extension context, so the worker
+ * checks that a message claiming to come from a tab really came from a mail tab
+ * the content script may run in.
+ */
+const tabSender = { id: 'phishnet-test', tab: { id: 91, url: 'https://mail.google.com/mail/u/0/' } };
 
 describe('service worker bootstrap', () => {
   it('registers a message listener', () => {
@@ -122,10 +131,13 @@ describe('whitelist management', () => {
     assert.equal(second.whitelist.filter((w) => w === 'example.com').length, 1, 'no duplicates');
   });
 
-  it('ignores an empty entry', async () => {
+  it('rejects an empty entry instead of silently ignoring it', async () => {
     const before = (await send({ type: 'GET_SETTINGS' })).whitelist.length;
     const res = await send({ type: 'ADD_WHITELIST', entry: '   ' });
-    assert.equal(res.success, true);
+    // A blank entry is a caller bug, not a no-op: reporting success for a
+    // change that was not made hides it.
+    assert.equal(res.success, false);
+    assert.match(res.error, /empty/i);
     const after = (await send({ type: 'GET_SETTINGS' })).whitelist.length;
     assert.equal(after, before, 'blank entries must not be stored');
   });
@@ -180,7 +192,7 @@ describe('SCAN_EMAIL gating', () => {
       { text: 'ok', links: 'not an array' },
     ]) {
       const sentBefore = mock.sentMessages.filter(m => m.type === 'RUN_INFERENCE').length;
-      const res = await send({ type: 'SCAN_EMAIL', payload });
+      const res = await send({ type: 'SCAN_EMAIL', payload }, tabSender);
       assert.equal(res.success, false, JSON.stringify(Object.keys(payload)));
       assert.match(res.error, /payload.*(invalid|large)/i);
       assert.equal(mock.sentMessages.filter(m => m.type === 'RUN_INFERENCE').length, sentBefore);
@@ -193,7 +205,7 @@ describe('SCAN_EMAIL gating', () => {
     const res = await send({
       type: 'SCAN_EMAIL',
       payload: { text: 'hello', subject: 'hi' },
-    });
+    }, tabSender);
     assert.equal(res.success, false);
     assert.equal(res.useHeuristic, true);
   });
@@ -205,7 +217,7 @@ describe('SCAN_EMAIL gating', () => {
     const res = await send({
       type: 'SCAN_EMAIL',
       payload: { text: 'hello', subject: 'hi' },
-    });
+    }, tabSender);
     assert.equal(res.success, true, JSON.stringify(res));
     assert.ok(res.result, 'expected an inference result');
     assert.equal(typeof res.result.label, 'string');
@@ -220,7 +232,7 @@ describe('SCAN_EMAIL gating', () => {
       sender: { email: 'sender@example.com' },
       unexpectedNestedField: { unused: true }
     };
-    const res = await send({ type: 'SCAN_EMAIL', payload });
+    const res = await send({ type: 'SCAN_EMAIL', payload }, tabSender);
     assert.equal(res.success, true);
     const forwarded = mock.sentMessages.filter(m => m.type === 'RUN_INFERENCE').at(-1);
     // The model needs the sender and the real hrefs to explain a verdict; the
@@ -235,7 +247,7 @@ describe('SCAN_EMAIL gating', () => {
   });
 
   it('omits an absent sender and link list rather than sending empty values', async () => {
-    const res = await send({ type: 'SCAN_EMAIL', payload: { text: 'plain body' } });
+    const res = await send({ type: 'SCAN_EMAIL', payload: { text: 'plain body' } }, tabSender);
     assert.equal(res.success, true);
     const forwarded = mock.sentMessages.filter(m => m.type === 'RUN_INFERENCE').at(-1);
     assert.deepEqual(forwarded.payload, { text: 'plain body' });
@@ -265,7 +277,6 @@ describe('SCAN_CURRENT_TAB', () => {
 
 
 describe('content-script whitelist privacy', () => {
-  const tabSender = { id: 'phishnet-test', tab: { id: 91, url: 'https://mail.google.com/mail/u/0/' } };
 
   it('withholds the whitelist from all content-script settings responses', async () => {
     const full = await send({ type: 'GET_SETTINGS' });
@@ -274,11 +285,27 @@ describe('content-script whitelist privacy', () => {
     for (const [message, getSettings] of [
       [{ type: 'CONTENT_READY' }, response => response.settings],
       [{ type: 'GET_SETTINGS' }, response => response],
-      [{ type: 'GET_STATUS' }, response => response.settings],
     ]) {
       const response = await mock.send(message, tabSender);
       assert.ok(getSettings(response).autoScan !== undefined);
       assert.equal(Object.hasOwn(getSettings(response), 'whitelist'), false);
+    }
+  });
+
+  it('refuses privileged messages from a tab outright', async () => {
+    // GET_STATUS carries the settings payload, and ADD_WHITELIST changes
+    // protection state. Neither is a content script's to ask for, so the worker
+    // rejects them before the handler runs rather than filtering the reply.
+    for (const message of [
+      { type: 'GET_STATUS' },
+      { type: 'ADD_WHITELIST', entry: 'private.invalid' },
+      { type: 'REMOVE_WHITELIST', entry: 'github.com' },
+      { type: 'UPDATE_SETTINGS', settings: { autoScan: false } },
+      { type: 'CLEAR_HISTORY' },
+    ]) {
+      const response = await mock.send(message, tabSender);
+      assert.equal(response.success, false, `${message.type} must be rejected from a tab`);
+      assert.equal(Object.hasOwn(response, 'settings'), false);
     }
   });
 
@@ -292,9 +319,11 @@ describe('content-script whitelist privacy', () => {
     }, tabSender);
     assert.deepEqual(unknown, { trusted: false });
 
-    const added = await mock.send({ type: 'ADD_WHITELIST', entry: 'private.invalid' }, tabSender);
+    // The popup page adds the entry; a tab may never do so. An extension page
+    // gets the updated list back, since it renders the list it just changed.
+    const added = await send({ type: 'ADD_WHITELIST', entry: 'private.invalid' });
     assert.equal(added.success, true);
-    assert.equal(Object.hasOwn(added, 'whitelist'), false);
+    assert.ok(added.whitelist.includes('private.invalid'));
     assert.ok((await send({ type: 'GET_SETTINGS' })).whitelist.includes('private.invalid'));
     await send({ type: 'REMOVE_WHITELIST', entry: 'private.invalid' });
   });

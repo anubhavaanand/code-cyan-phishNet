@@ -139,11 +139,16 @@ function createChromeMock(options = {}) {
     },
   };
 
-  /** Deliver a message to the worker as if another extension context sent it. */
+  /**
+   * Deliver a message to the worker as if another extension context sent it.
+   *
+   * `sender.id` is the extension's own id: `chrome.runtime.sendMessage` only
+   * reaches this extension's contexts, and the worker rejects anything else.
+   */
   function deliver(message) {
     const results = [];
     for (const fn of [...messageListeners]) {
-      results.push(fn(message, { id: 'sender' }, () => {}));
+      results.push(fn(message, { id: 'phishnet-test' }, () => {}));
     }
     return results;
   }
@@ -152,7 +157,7 @@ function createChromeMock(options = {}) {
    * Send a message and resolve with the worker's response.
    * Mirrors chrome.runtime.onMessage's async sendResponse contract.
    */
-  function send(message, sender = { id: 'test' }) {
+  function send(message, sender = { id: 'phishnet-test' }) {
     return new Promise((resolve) => {
       let settled = false;
       const sendResponse = (value) => {

@@ -4,8 +4,10 @@
  */
 
 import logger from './utils/logger.js';
-import { isSupportedMailTabUrl } from './utils/mail-urls.mjs';
+import { isSupportedMailTabSender, isSupportedMailTabUrl } from './utils/mail-urls.mjs';
 import { DEFAULT_SETTINGS, normalizeStoredSettings, validateSettingsPatch } from './utils/settings-validation.mjs';
+import { MAX_WHITELIST_ENTRIES, normalizeWhitelistEntry } from './utils/whitelist-entry.mjs';
+import { checkSender } from './utils/message-auth.mjs';
 
 // State
 let offscreenDocumentCreated = false;
@@ -192,10 +194,21 @@ async function createOffscreenDocument() {
 }
 
 /**
- * Single unified message dispatcher
+ * Single unified message dispatcher.
+ *
+ * `chrome.runtime.sendMessage` reaches every extension context at once, so the
+ * sender is checked before the message is routed. Rules live in
+ * `message-auth.mjs`; see there for why each group is separated.
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) return false;
+
+  const allowed = checkSender(message.type, sender, chrome.runtime?.id, isSupportedMailTabSender);
+  if (!allowed.ok) {
+    logger.debug(`Rejected ${message.type}: ${allowed.error}`);
+    sendResponse({ success: false, error: allowed.error });
+    return false;
+  }
 
   handleIncomingMessage(message, sender)
     .then((result) => {
@@ -264,9 +277,14 @@ async function handleIncomingMessage(message, sender) {
       return { success: true, settings: settingsForSender(sender) };
 
     case 'ADD_WHITELIST': {
-      const entry = (message.entry || '').trim().toLowerCase();
-      if (entry && !settings.whitelist.includes(entry)) {
-        settings.whitelist.push(entry);
+      const entry = normalizeWhitelistEntry(message.entry);
+      if (!entry.ok) return { success: false, error: entry.error };
+      if (settings.whitelist.length >= MAX_WHITELIST_ENTRIES &&
+          !settings.whitelist.includes(entry.value)) {
+        return { success: false, error: `Whitelist cannot exceed ${MAX_WHITELIST_ENTRIES} entries` };
+      }
+      if (!settings.whitelist.includes(entry.value)) {
+        settings.whitelist.push(entry.value);
         await saveSettings({ whitelist: settings.whitelist });
         broadcastSettingsUpdate();
       }
@@ -274,8 +292,12 @@ async function handleIncomingMessage(message, sender) {
     }
 
     case 'REMOVE_WHITELIST': {
-      const entry = (message.entry || '').trim().toLowerCase();
-      settings.whitelist = settings.whitelist.filter(w => w !== entry);
+      const entry = normalizeWhitelistEntry(message.entry);
+      // An entry that is no longer valid cannot be in a validated list, but it
+      // may still be in storage from an older version; drop it by its raw form.
+      const raw = typeof message.entry === 'string' ? message.entry.trim().toLowerCase() : '';
+      if (!entry.ok && !raw) return { success: false, error: entry.error };
+      settings.whitelist = settings.whitelist.filter(w => w !== (entry.ok ? entry.value : raw));
       await saveSettings({ whitelist: settings.whitelist });
       broadcastSettingsUpdate();
       return sender?.tab ? { success: true } : { success: true, whitelist: settings.whitelist };
