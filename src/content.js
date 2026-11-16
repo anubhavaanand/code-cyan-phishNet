@@ -31,6 +31,9 @@
   let lastUrl = typeof location !== 'undefined' ? location.href : '';
   const activeScans = new Set();
   const scannedEmailIds = new Set();
+  // Elements already handled. Ids are evicted from the LRU set above, so the
+  // set alone cannot answer "has this exact DOM node been scanned?".
+  const scannedElements = new WeakSet();
   const MAX_TRACKED_IDS = 50;
   const MAX_EXTRACTED_ATTACHMENTS = 50;
   const MAX_EXTRACTED_LINKS = 100;
@@ -111,16 +114,42 @@
 
     if (messageElements.length === 0) return;
 
+    // Collect this pass's work before touching the tracking set.
+    //
+    // Evicting while iterating was a loop: with more than MAX_TRACKED_IDS
+    // elements, the id dropped was usually the next one to be visited, so it
+    // was re-added and scanned in the same pass. The badge injection then
+    // mutated the DOM, which retriggered the observer and scheduled another
+    // pass — endless inference and badge churn on long threads.
+    const discovered = [];
     messageElements.forEach((element) => {
+      // An element already handled is skipped even if its id was evicted from
+      // the LRU set, so a long-lived DOM node is never scanned twice.
+      if (scannedElements.has(element)) return;
+
       const emailId = getEmailId(element);
-      if (emailId && !scannedEmailIds.has(emailId) && !activeScans.has(emailId)) {
-        scannedEmailIds.add(emailId);
-        if (scannedEmailIds.size > MAX_TRACKED_IDS) {
-          scannedEmailIds.delete(scannedEmailIds.values().next().value);
-        }
-        scanEmail(element, emailId);
+      if (!emailId) return;
+
+      if (scannedEmailIds.has(emailId) || activeScans.has(emailId)) {
+        scannedElements.add(element);
+        return;
       }
+      discovered.push({ element, emailId });
     });
+
+    if (discovered.length === 0) return;
+
+    // Claim every id for this pass, then trim. The order matters: trimming
+    // first would evict an id that a later element in this same pass needs.
+    for (const { emailId } of discovered) scannedEmailIds.add(emailId);
+    while (scannedEmailIds.size > MAX_TRACKED_IDS) {
+      scannedEmailIds.delete(scannedEmailIds.values().next().value);
+    }
+
+    for (const { element, emailId } of discovered) {
+      scannedElements.add(element);
+      scanEmail(element, emailId);
+    }
   }
 
   /**
