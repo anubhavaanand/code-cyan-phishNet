@@ -12,7 +12,7 @@ const path = require('node:path');
  * These tests drive the real scan path with a stubbed classifier so the label
  * and confidence are controlled directly.
  */
-function harness({ label, confidence, threshold = 0.7 }) {
+function harness({ label, confidence, threshold = 0.7, messageText = 'Please verify your account immediately by clicking the link below now.' }) {
   const callbacks = {};
   const scans = [];
 
@@ -29,9 +29,9 @@ function harness({ label, confidence, threshold = 0.7 }) {
 
   const message = {
     dataset: { messageId: 'msg-0' },
-    textContent: 'Please verify your account immediately by clicking the link below now.',
+    textContent: messageText,
     querySelector(selector) {
-      if (selector === '.phishnet-badge') return null;
+      if (selector === '.phishnet-badge' || selector === 'form, input, select, textarea') return null;
       return insertPoint;
     },
     querySelectorAll: () => [],
@@ -182,4 +182,17 @@ test('the threshold is inclusive at the boundary', async () => {
   const h = harness({ label: 'phishing_url', confidence: 0.7, threshold: 0.7 });
   const result = await h.scan();
   assert.equal(verdictClass(result), 'phishing');
+});
+
+test('a short phishing message still reaches inference', async () => {
+  const h = harness({ label: 'phishing_email', confidence: 0.95, messageText: 'Verify now' });
+  const result = await h.scan();
+  assert.deepEqual(h.scans, ['msg-0']);
+  assert.equal(verdictClass(result), 'phishing');
+});
+
+test('an empty message with no subject, sender, link or attachment is skipped', async () => {
+  const h = harness({ label: 'phishing_email', confidence: 0.95, messageText: '' });
+  await h.scan();
+  assert.equal(h.scans.length, 0);
 });

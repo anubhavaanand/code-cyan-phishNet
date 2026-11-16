@@ -286,8 +286,13 @@
         return trustedResult;
       }
 
-      if (!emailContent.text || emailContent.text.length < 15) {
-        logger.debug('Email content too short, skipping scan');
+      // Short messages can be phishing attempts. Only skip containers with no
+      // text or other signals to classify (e.g. an empty compose placeholder).
+      const hasEmailSignals = Boolean(emailContent.text?.trim() ||
+        emailContent.links?.length || emailContent.attachments?.length ||
+        emailContent.hasFormElements || emailContent.sender?.email || emailContent.sender?.domain);
+      if (!hasEmailSignals) {
+        logger.debug('Email has no content or signals, skipping scan');
         return null;
       }
 
