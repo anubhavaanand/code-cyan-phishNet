@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import { DEFAULT_SETTINGS, normalizeStoredSettings, validateSettingsPatch } from '../src/utils/settings-validation.mjs';
 
 describe('persisted settings validation', () => {
+  it('does not pre-trust consumer email domains for new installations', () => {
+    assert.deepEqual(DEFAULT_SETTINGS.whitelist, []);
+    assert.deepEqual(normalizeStoredSettings({}).whitelist, []);
+    assert.deepEqual(normalizeStoredSettings({ whitelist: null }).whitelist, []);
+    assert.deepEqual(normalizeStoredSettings({ whitelist: ['alice@example.com'] }).whitelist, ['alice@example.com']);
+  });
+
   it('rejects corrupted values without discarding valid stored preferences', () => {
     const normalized = normalizeStoredSettings({
       autoScan: 'false',
