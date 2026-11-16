@@ -41,6 +41,9 @@
   // set alone cannot answer "has this exact DOM node been scanned?".
   const scannedElements = new WeakSet();
   const MAX_TRACKED_IDS = 50;
+  // Long enough that a signature or footer does not push the real content past
+  // the cut. The model still truncates to its own token budget.
+  const BODY_TEXT_LIMIT = 12000;
   const MAX_EXTRACTED_ATTACHMENTS = 50;
   const MAX_EXTRACTED_LINKS = 100;
   // Labels that mean "this is an attack". The threshold applies to all of
@@ -182,13 +185,28 @@
   /**
    * Get unique email identifier
    */
+  /**
+   * A stable identifier for a message element.
+   *
+   * Provider ids are preferred. `[role=listitem]` in Outlook often has no
+   * `data-convid`, and falling back to a sender+subject hash means two
+   * legitimate messages with the same subject collide — one is marked scanned
+   * without ever being looked at. When no id attribute exists, a content hash
+   * is used instead, so distinct messages stay distinct.
+   */
   function getEmailId(element) {
     if (!element) return null;
+
+    const ATTRIBUTE_IDS = [
+      'messageId', 'message-id', 'convid', 'conversationId', 'conversation-id',
+      'itemId', 'item-id', 'dataMessageId', 'dataConversatonId'
+    ];
+    for (const key of ATTRIBUTE_IDS) {
+      const value = element.dataset?.[key] || element.getAttribute?.(key);
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+
     const selectors = currentSelectors?.selectors;
-
-    if (element.dataset?.messageId) return element.dataset.messageId;
-    if (element.dataset?.convid) return element.dataset.convid;
-
     if (selectors) {
       const senderEl = element.querySelector(selectors.sender) || element.querySelector(selectors.senderEmail);
       const subjectEl = element.querySelector(selectors.subject) || element.querySelector(selectors.subjectAlt);
@@ -196,7 +214,11 @@
       if (senderEl || subjectEl) {
         const str = (senderEl?.textContent || '') + '::' + (subjectEl?.textContent || '');
         try {
-          return btoa(unescape(encodeURIComponent(str))).slice(0, 32);
+          // btoa throws on non-Latin1; the TextEncoder path handles any script.
+          const bytes = new TextEncoder().encode(str);
+          let binary = '';
+          for (const b of bytes) binary += String.fromCharCode(b);
+          return btoa(binary).slice(0, 32);
         } catch (e) {
           return str.slice(0, 32);
         }
@@ -370,12 +392,54 @@
   }
 
   /**
+   * Regions that hold metadata rather than message content.
+   *
+   * When the body container is the whole message element, its textContent
+   * includes the sender, subject and date lines, and quoted-reply attribution.
+   * Those tokens would otherwise be scanned as body text.
+   */
+  function headerSelectorList() {
+    const selectors = currentSelectors?.selectors || {};
+    return [
+      selectors.subject,
+      selectors.subjectAlt,
+      selectors.subjectFallback,
+      selectors.sender,
+      selectors.senderName,
+      selectors.senderEmail,
+      selectors.senderFallback,
+      '.gmail_attr',
+      '.mail-message-header',
+      '[role="heading"]'
+    ].filter(Boolean);
+  }
+
+  /**
+   * Clone `source` with non-content regions removed.
+   */
+  function cloneBody(source, { stripHeaders }) {
+    const clone = source.cloneNode(true);
+    const skipList = (UTILITY_SELECTORS.skipElements || []).concat([
+      'script', 'style', 'noscript', '.phishnet-badge', '.phishnet-link-warning'
+    ]);
+    if (stripHeaders) skipList.push(...headerSelectorList());
+    skipList.forEach((sel) => {
+      try {
+        clone.querySelectorAll(sel).forEach(el => el.remove());
+      } catch (e) {}
+    });
+    return clone;
+  }
+
+  /**
    * Extract email content and attachments from DOM element
    */
   function extractEmailContent(element) {
     const selectors = currentSelectors?.selectors || {};
 
-    // Extract subject
+    // Extract subject. The search is scoped to the message's own container:
+    // falling back to `document` let a page-level heading become the subject.
+    const subjectRoot = element.closest('[data-thread-id]') || element.closest('[data-convid]') || element;
     const subjectSelectors = [
       selectors.subject,
       selectors.subjectAlt,
@@ -384,7 +448,7 @@
       'h2', 'h3', '[role="heading"]',
       '[data-thread-id] h2'
     ].filter(Boolean);
-    const subjectEl = safeQuery(element.closest('[data-thread-id]') || element.closest('[data-convid]') || document, subjectSelectors, 'Subject');
+    const subjectEl = safeQuery(subjectRoot, subjectSelectors, 'Subject');
     const subject = safeText(subjectEl);
 
     // Extract sender
@@ -426,8 +490,11 @@
       }
     }
 
-    // Extract body text
-    let bodyText = '';
+    // Extract body text.
+    //
+    // When no body selector matches, the container is the whole message
+    // element, so its metadata regions are stripped before the text is read.
+    // Otherwise the sender, subject and date lines are scanned as body text.
     const bodySelectors = [
       selectors.messageBody,
       selectors.messageBodyAlt,
@@ -444,27 +511,23 @@
       'article'
     ].filter(Boolean);
 
-    const bodyEl = safeQuery(element, bodySelectors, 'Body') || element;
+    const matchedBody = safeQuery(element, bodySelectors, 'Body');
+    const bodyEl = matchedBody || element;
+    let bodyText = '';
 
     if (bodyEl) {
       try {
-        const clone = bodyEl.cloneNode(true);
-        const skipList = (UTILITY_SELECTORS.skipElements || []).concat([
-          'script', 'style', 'noscript', '.phishnet-badge', '.phishnet-link-warning'
-        ]);
-        skipList.forEach((sel) => {
-          try {
-            clone.querySelectorAll(sel).forEach(el => el.remove());
-          } catch (e) {}
-        });
-        bodyText = safeText(clone, 4000);
+        bodyText = safeText(cloneBody(bodyEl, { stripHeaders: !matchedBody }), BODY_TEXT_LIMIT);
       } catch (e) {
-        bodyText = safeText(bodyEl, 4000);
+        bodyText = safeText(bodyEl, BODY_TEXT_LIMIT);
       }
     }
 
-    // Extract links
-    const { links, truncated: linksTruncated } = extractLinks(element);
+    // Extract links from the message body only.
+    //
+    // Reading `element` picked up quoted replies and signature links, so an old
+    // phishing link in a forwarded thread could flag an otherwise safe email.
+    const { links, truncated: linksTruncated } = extractLinks(bodyEl);
 
     // Extract attachments
     const attachments = extractAttachments(element);
@@ -518,6 +581,20 @@
       }
 
       let text = (linkEl.textContent || '').trim();
+      // An image-only link has no text content. Without a fallback the
+      // display-text mismatch check is skipped, which is exactly the shape of
+      // an "image as link" phish.
+      if (!text) {
+        const img = linkEl.querySelector?.('img');
+        text = (
+          safeAttr(linkEl, 'aria-label') ||
+          safeAttr(linkEl, 'title') ||
+          safeAttr(img, 'alt') ||
+          safeAttr(img, 'title') ||
+          ''
+        ).trim();
+      }
+      if (!text && linkEl.querySelector?.('img')) text = '[image link]';
       if (text.length > 120) text = text.slice(0, 120) + '...';
 
       const isSuspicious = PhishNet.isUrlSuspicious ? PhishNet.isUrlSuspicious(href) : false;
