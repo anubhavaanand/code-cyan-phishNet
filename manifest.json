@@ -36,6 +36,7 @@
         "https://outlook.office365.com/*"
       ],
       "js": [
+        "src/utils/threat-lists.js",
         "src/selectors.js",
         "src/utils/error-boundary.js",
         "src/utils/heuristic-detector.js",

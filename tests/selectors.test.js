@@ -4,6 +4,7 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 
+require('../src/utils/threat-lists.js');
 const { getSelectorsForCurrentSite, EMAIL_SELECTORS, UTILITY_SELECTORS } = require('../src/selectors.js');
 
 const at = (hostname, path = '/') => ({ hostname, href: `https://${hostname}${path}` });

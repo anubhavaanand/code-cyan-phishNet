@@ -222,6 +222,35 @@ describe('URL analysis', () => {
     assert.match(result.links[0].reason, /unencrypted HTTP/i);
   });
 
+  test('accepts a private or loopback address', () => {
+    // These only resolve inside the user's own network; flagging them trains
+    // people to ignore the warning.
+    for (const url of [
+      'https://192.168.1.10/',
+      'https://10.0.0.5/',
+      'https://127.0.0.1/',
+      'https://172.16.4.1/',
+      'https://169.254.1.1/',
+    ]) {
+      assert.equal(isUrlSuspicious(url), false, `${url} must not be suspicious`);
+    }
+  });
+
+  test('still flags a public address literal', () => {
+    for (const url of ['https://8.8.8.8/', 'https://1.1.1.1/', 'https://172.32.0.1/']) {
+      assert.equal(isUrlSuspicious(url), true, `${url} must be suspicious`);
+    }
+  });
+
+  test('treats an unparseable URL as malformed, not malicious', () => {
+    // A browser refuses to navigate to a URL this parser rejects, so calling it
+    // a phishing host is noise. Dangerous schemes and invisible characters are
+    // still caught before parsing.
+    for (const url of ['http://', 'https://[', 'not a url at all']) {
+      assert.equal(isUrlSuspicious(url), false, `${url} must not be called malicious`);
+    }
+  });
+
   test('does not flag a keyword merely contained in a label', () => {
     // Substring matching flagged accountant.com (contains "account") and
     // similar ordinary domains. A keyword counts only as its own label or as

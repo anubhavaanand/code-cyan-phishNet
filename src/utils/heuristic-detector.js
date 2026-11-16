@@ -13,9 +13,22 @@
   'use strict';
 
   const root = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this);
-  const UTILITY_SELECTORS = root.PhishNet?.UTILITY_SELECTORS || {
-    suspiciousTlds: ['.tk','.ml','.ga','.cf','.gq','.xyz','.top','.club','.work','.date','.faith','.loan','.win','.bid','.review','.country','.stream','.download','.xin','.racing','.men','.buzz','.surf','.icu','.monster','.rest'],
-    urlShorteners: ['bit.ly','tinyurl.com','goo.gl','t.co','ow.ly','is.gd','buff.ly','adf.ly','bc.vc','shorte.st','clck.ru','cutt.ly','rb.gy']
+
+  // The canonical lists live in src/utils/threat-lists.js, which every context
+  // loads before this file. They used to be duplicated here, and the copy had
+  // drifted from the selector table's: this detector knew .icu while
+  // selectors.js knew tiny.cc, so the heuristic and ML paths disagreed on the
+  // same URL. An inline copy remains only as a last resort for a context that
+  // loaded this file on its own.
+  // Fall back to requiring the shared module when this file is loaded on its
+  // own (Node, tests), where no earlier script tag installed the lists.
+  const sharedLists = root.PhishNet?.THREAT_LISTS ||
+    root.PhishNet?.UTILITY_SELECTORS ||
+    (typeof require === 'function' ? safeRequireThreatLists() : null);
+
+  const UTILITY_SELECTORS = sharedLists || {
+    suspiciousTlds: ['.tk', '.ml', '.ga', '.cf', '.gq', '.xyz', '.top', '.club'],
+    urlShorteners: ['bit.ly', 'tinyurl.com', 'goo.gl', 't.co']
   };
 
   const HIGH_PROFILE_BRANDS = [
@@ -145,8 +158,62 @@
     for (const [from, to] of Object.entries(digitFolds)) CONFUSABLE_MAP.set(from, to);
   })();
 
-  /**
-   * skeleton(str): fold str into its unambiguous ASCII form.
+/**
+ * Order reasons so the most actionable survive truncation.
+ *
+ * A weaponised attachment is the strongest signal the engine produces, but it
+ * was appended last and could be cut by the display cap, hiding the one line a
+ * user most needs to read.
+ *
+ * @param {string[]} reasons
+ * @param {number} [limit]
+ * @returns {string[]}
+ */
+function prioritiseReasons(reasons, limit = 6) {
+  if (reasons.length <= limit) return reasons;
+  const critical = (reason) => /attachment/i.test(reason) && !/only the first/i.test(reason);
+  const important = reasons.filter(critical);
+  const rest = reasons.filter((reason) => !critical(reason));
+  return [...important, ...rest].slice(0, limit);
+}
+
+/**
+ * Load the canonical threat lists, tolerating a bundler that has no `require`.
+ */
+function safeRequireThreatLists() {
+  try {
+    return require('./threat-lists.js');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether an IPv4 literal is in a private, loopback or link-local range.
+ *
+ * These addresses only resolve inside the user's own network, so a link to one
+ * is an intranet or local-dev target rather than a phishing host.
+ *
+ * @param {string} host hostname or IP literal
+ * @returns {boolean}
+ */
+function isPrivateIpAddress(host) {
+  const octets = String(host || '').split('.').map((part) => Number(part));
+  if (octets.length !== 4 || octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return false;
+  }
+  const [a, b] = octets;
+  if (a === 10) return true;                       // 10.0.0.0/8
+  if (a === 127) return true;                      // loopback
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+  if (a === 192 && b === 168) return true;         // 192.168.0.0/16
+  if (a === 169 && b === 254) return true;         // link-local
+  if (a === 0) return true;                        // "this host"
+  return false;
+}
+
+/**
+ * skeleton(str): fold str into its unambiguous ASCII form.
    * 'p\u0430ypal' -> 'paypal', 'g00gle' -> 'google'
    */
   function skeleton(str) {
@@ -436,8 +503,17 @@
     // invisible-character obfuscation
     if (hasInvisible(raw)) return true;
 
+    // An unparseable URL is malformed, not proven malicious. The checks above
+    // already caught dangerous schemes and invisible characters, and a browser
+    // refuses to navigate to a URL this parser rejects (an invalid port, an
+    // unclosed IPv6 literal), so treating it as a phishing host only produced
+    // noise on relative or hand-typed links.
     let parsed;
-    try { parsed = new URL(raw); } catch { return true; }
+    try {
+      parsed = new URL(raw);
+    } catch {
+      return false;
+    }
     // Do not allow untrusted links to invoke non-web protocols through the URL scanner.
     if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) return true;
     // URL normalizes default ports away; any remaining HTTP(S) port is nonstandard.
@@ -470,7 +546,11 @@
       if (domain.endsWith(tld.startsWith('.') ? tld : '.' + tld)) return true;
     }
 
-    if (IP_HOSTNAME_REGEX.test(domain)) return true;
+    // A bare IP literal is unusual for a public link, but a private or
+    // loopback address points at the user's own network: an intranet host, a
+    // router page, a dev server. Flagging those trains people to ignore the
+    // warning. Only public IP literals stay suspicious.
+    if (IP_HOSTNAME_REGEX.test(domain)) return !isPrivateIpAddress(domain);
     if (domain.split('.').length > 4) return true;
     if (domain.length > 75) return true;
     // hyphen abuse: 3+ hyphen-separated labels in the registrable SLD
@@ -746,7 +826,7 @@
       label,
       confidence,
       engine: 'heuristic-v1.1',
-      reasons: [...new Set(reasons)].slice(0, 6),
+      reasons: prioritiseReasons([...new Set(reasons)]),
       processingTime: 0,
       links: analyzedLinks,
       attachments: analyzedAttachments,

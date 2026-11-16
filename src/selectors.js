@@ -6,6 +6,8 @@
 (function () {
   'use strict';
 
+  const root = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this);
+
   const EMAIL_SELECTORS = {
     gmail: {
       // Individual email messages within thread
@@ -150,23 +152,13 @@
       'refund', 'tax', 'irs', 'government', 'legal', 'court'
     ],
 
-    // Suspicious TLDs
-    suspiciousTlds: [
-      '.tk', '.ml', '.ga', '.cf', '.gq', '.xyz', '.top', '.club',
-      '.work', '.date', '.faith', '.loan', '.win', '.bid', '.review',
-      '.country', '.stream', '.download', '.xin', '.racing', '.men'
-    ],
-
-    // URL shorteners
-    urlShorteners: [
-      'bit.ly', 'tinyurl.com', 'goo.gl', 't.co', 'ow.ly', 'is.gd',
-      'buff.ly', 'adf.ly', 'bc.vc', 'shorte.st', 'clck.ru', 'cutt.ly',
-      'rb.gy', 'tiny.cc', 'v.gd', 's.id', 'shorturl.at', 'rebrand.ly'
-    ]
+    // Suspicious TLDs and URL shorteners come from src/utils/threat-lists.js,
+    // which loads first. They used to be duplicated here and had drifted from
+    // the detector's copy.
+    ...(root.PhishNet?.THREAT_LISTS || {})
   };
 
   // Expose globally for use in content script
-  const root = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this);
   root.PhishNet = root.PhishNet || {};
   root.PhishNet.getSelectorsForCurrentSite = getSelectorsForCurrentSite;
   root.PhishNet.EMAIL_SELECTORS = EMAIL_SELECTORS;
