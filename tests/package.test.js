@@ -239,14 +239,27 @@ describe('model provenance', () => {
     assert.match(OFFSCREEN, /Pinned revision/);
   });
 
-  test('the message listener answers unknown types instead of hanging', () => {
+  test('the message listener leaves foreign messages to their owner', () => {
     // The listener used to end with an unconditional `return true`, which left
     // the channel open with no sendResponse for any type it did not handle.
-    assert.match(OFFSCREEN, /default:/, 'the switch needs a default case');
+    // Answering those types instead was worse: chrome.runtime.sendMessage
+    // broadcasts to every context, and Chrome keeps the first sendResponse it
+    // sees, so a synchronous reply here preempted the background worker's
+    // asynchronous one. The listener must claim nothing it does not own.
     assert.match(
       OFFSCREEN,
+      /shouldHandle\(message, sender, chrome\.runtime\.id\)/,
+      'the listener must gate on message ownership'
+    );
+    assert.doesNotMatch(
+      OFFSCREEN,
       /Unsupported message type/,
-      'an unknown type must be answered with an error'
+      'the offscreen document must not answer messages it does not own'
+    );
+    assert.match(
+      OFFSCREEN,
+      /from '.\/utils\/offscreen-messages\.mjs'/,
+      'ownership rules must live in the shared helper'
     );
   });
 });
