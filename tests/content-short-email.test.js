@@ -7,8 +7,8 @@ const path = require('node:path');
 const source = readFileSync(path.resolve(__dirname, '../src/content.js'), 'utf8');
 const detector = require('../src/utils/heuristic-detector.js');
 
-function harness({ body = '', sender = '', links = [], autoScan = true, trusted = false } = {}) {
-  const state = { body, sender, links, autoScan, trusted };
+function harness({ body = '', subject = '', sender = '', links = [], autoScan = true, trusted = false } = {}) {
+  const state = { body, subject, sender, links, autoScan, trusted };
   const messages = [];
   const heuristicInputs = [];
   const listeners = {};
@@ -19,6 +19,7 @@ function harness({ body = '', sender = '', links = [], autoScan = true, trusted 
     nextSibling: null,
     getAttribute: (name) => name === 'email' ? state.sender : null
   };
+  const subjectNode = { get textContent() { return state.subject; } };
   const bodyNode = {
     get textContent() { return state.body; },
     cloneNode() { return this; },
@@ -39,6 +40,7 @@ function harness({ body = '', sender = '', links = [], autoScan = true, trusted 
     getAttribute: () => null,
     querySelector(selector) {
       if (selector === '.sender') return state.sender ? senderNode : null;
+      if (selector === '.subject') return state.subject ? subjectNode : null;
       if (selector === '.body') return bodyNode;
       return null;
     },
@@ -93,7 +95,7 @@ function harness({ body = '', sender = '', links = [], autoScan = true, trusted 
       PhishNet: {
         getSelectorsForCurrentSite: () => ({
           provider: 'gmail', variant: 'default',
-          selectors: { messages: '[data-message-id]', sender: '.sender', messageBody: '.body' }
+          selectors: { messages: '[data-message-id]', sender: '.sender', subject: '.subject', messageBody: '.body' }
         }),
         heuristicDetect(content) {
           heuristicInputs.push(content);
@@ -137,6 +139,16 @@ test('a short phishing message is sent to ML and heuristics', async () => {
   assert.equal(h.scans().length, 1);
   assert.equal(h.scans()[0].payload.text, 'Verify now');
   assert.equal(h.heuristicInputs.length, 1);
+});
+
+test('long subjects are bounded for ML without dropping local phishing analysis', async () => {
+  const subject = 'Urgent account verification '.repeat(55).trim();
+  const h = harness({ body: 'Verify your account now', subject });
+  await h.start();
+  assert.equal(h.scans().length, 1);
+  assert.equal(h.scans()[0].payload.subject, subject.slice(0, 1024));
+  assert.equal(h.scans()[0].payload.text.startsWith(subject), true);
+  assert.equal(h.heuristicInputs[0].subject, subject);
 });
 
 test('an empty body with a phishing link still receives heuristic analysis', async () => {

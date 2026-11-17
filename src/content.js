@@ -48,6 +48,9 @@
   // Long enough that a signature or footer does not push the real content past
   // the cut. The model still truncates to its own token budget.
   const BODY_TEXT_LIMIT = 12000;
+  // Keep the content-to-worker payload within background.js validation limits.
+  // Preserve the complete subject in emailContent for local heuristics.
+  const MAX_SCAN_SUBJECT = 1024;
   const MAX_EXTRACTED_ATTACHMENTS = 50;
   const MAX_EXTRACTED_LINKS = 100;
   // Labels that mean "this is an attack". The threshold applies to all of
@@ -320,6 +323,7 @@
             type: 'SCAN_EMAIL',
             payload: {
               ...emailContent,
+              subject: emailContent.subject.slice(0, MAX_SCAN_SUBJECT),
               url: window.location.href,
               emailId
             }
