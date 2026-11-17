@@ -705,6 +705,12 @@
       if (truncated) break;
       try {
         for (const el of element.querySelectorAll(sel)) {
+          // Broad attachment selectors also match size labels and wrappers.
+          // Count only file-name nodes when a wrapper contains one.
+          const testId = el.getAttribute?.('data-testid') || '';
+          if (/attachment[-_]?(?:size|filesize)/i.test(testId)) continue;
+          if (selectors.attachmentSizes && el.matches?.(selectors.attachmentSizes)) continue;
+          if (selectors.attachmentNames && el.querySelector?.(selectors.attachmentNames)) continue;
           if (attachments.length >= MAX_EXTRACTED_ATTACHMENTS) {
             truncated = true;
             break;
