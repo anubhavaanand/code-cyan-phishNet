@@ -36,9 +36,14 @@ export function useSettings() {
     // Build from the latest state, then persist outside the updater. React may
     // call an updater more than once (StrictMode), and a network write inside it
     // would be issued twice.
-    const next = { ...settingsRef.current, [key]: value };
+    const prev = settingsRef.current;
+    const next = { ...prev, [key]: value };
     setSettings(next);
-    await updateSettings(next);
+    const success = await updateSettings(next);
+    if (!success) {
+      // Revert on failure - the write didn't persist, so restore previous state
+      setSettings(prev);
+    }
   }, []);
 
   return { settings, update, loaded };
