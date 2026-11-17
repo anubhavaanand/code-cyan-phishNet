@@ -43,7 +43,7 @@
   // Last verdict per element, so a settings change can re-render without
   // re-running inference.
   const renderedResults = new Map();
-  let activeSettings = { highlightLinks: true, sensitivityThreshold: 0.7 };
+  let activeSettings = { autoScan: true, sensitivityThreshold: 0.7, highlightLinks: true, showTooltip: true };
   const MAX_TRACKED_IDS = 50;
   // Long enough that a signature or footer does not push the real content past
   // the cut. The model still truncates to its own token budget.
@@ -260,14 +260,9 @@
     try {
       const emailContent = extractEmailContent(element);
 
-      // Get non-sensitive preferences; whitelist decisions remain in the extension background.
-      let settings = { autoScan: true, sensitivityThreshold: 0.7, highlightLinks: true, showTooltip: true };
-      try {
-        const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
-        if (response) settings = Object.assign(settings, response);
-      } catch (e) {
-        logger.debug('Using default settings for scan');
-      }
+      // Use cached settings from SETTINGS_UPDATE broadcasts; no per-scan
+      // GET_SETTINGS round-trip needed.
+      const settings = activeSettings;
 
       const senderEmail = emailContent.sender?.email?.toLowerCase() || '';
       const senderDomain = emailContent.sender?.domain?.toLowerCase() || '';

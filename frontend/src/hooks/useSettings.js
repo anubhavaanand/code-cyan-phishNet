@@ -39,8 +39,10 @@ export function useSettings() {
     const prev = settingsRef.current;
     const next = { ...prev, [key]: value };
     setSettings(next);
-    const success = await updateSettings(next);
-    if (!success) {
+    const result = await updateSettings(next);
+    // updateSettings() returns { success: false, error } on validation failure
+    // (truthy object) or null on transport failure. Both mean the write failed.
+    if (!result || result.success === false) {
       // Revert on failure - the write didn't persist, so restore previous state
       setSettings(prev);
     }
