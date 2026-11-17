@@ -57,13 +57,19 @@ export function normalizeStoredSettings(stored) {
   return Object.fromEntries(Object.entries(DEFAULT_SETTINGS).map(([key, fallback]) => {
     const value = source[key];
 
-    // A whitelist is validated as a whole rather than field by field: if any
-    // entry is unusable the list falls back to the defaults. One corrupt value
-    // used to survive into the worker, where `item.toLowerCase()` threw on
-    // every scan and silently disabled scanning entirely.
+    // A whitelist is validated entry by entry rather than as a whole: one bad
+    // entry should not discard every other valid entry. One corrupt value used
+    // to survive into the worker, where `item.toLowerCase()` threw on every
+    // scan and silently disabled scanning entirely.
     if (key === 'whitelist') {
       const recovered = normalizeWhitelist(value);
-      return [key, recovered.ok ? recovered.value : [...fallback]];
+      if (recovered.ok) return [key, recovered.value];
+      // Filter out invalid entries instead of discarding the whole list.
+      const valid = (Array.isArray(value) ? value : []).filter(item => {
+        const result = normalizeWhitelistEntry(item);
+        return result.ok;
+      });
+      return [key, valid];
     }
 
     const validated = isValidSetting(key, value) ? value : fallback;

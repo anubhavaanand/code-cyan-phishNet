@@ -25,7 +25,7 @@ describe('persisted settings validation', () => {
     assert.equal(normalized.highlightLinks, false);
     assert.equal(normalized.showTooltip, DEFAULT_SETTINGS.showTooltip);
     assert.equal(normalized.theme, DEFAULT_SETTINGS.theme);
-    assert.deepEqual(normalized.whitelist, DEFAULT_SETTINGS.whitelist);
+    assert.deepEqual(normalized.whitelist, ['trusted.example']);
     assert.equal(Object.hasOwn(normalized, 'attackerKey'), false);
   });
 
