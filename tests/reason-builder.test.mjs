@@ -143,6 +143,13 @@ test('urgency keywords are reported from the text', () => {
   assert.ok(reasons.some((r) => r.includes('urgency keywords')));
 });
 
+test('structured HTML form signal is reported alongside ML reasons', () => {
+  const withForm = build({ predictions: PREDICTIONS, text: 'Hello', hasFormElements: true });
+  const withoutForm = build({ predictions: PREDICTIONS, text: 'Hello', hasFormElements: false });
+  assert.ok(withForm.includes('Interactive form elements inside email'));
+  assert.ok(!withoutForm.includes('Interactive form elements inside email'));
+});
+
 test('reasons are capped at five and de-duplicated', () => {
   const reasons = build({
     predictions: PREDICTIONS,

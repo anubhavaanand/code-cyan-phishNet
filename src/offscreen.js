@@ -186,6 +186,7 @@ async function runInference(payload = {}, settings = {}, requestId = null) {
   const text = typeof payload === 'string' ? payload : (payload?.text || '');
   const sender = payload && typeof payload === 'object' ? payload.sender : undefined;
   const links = payload && typeof payload === 'object' ? payload.links : undefined;
+  const hasFormElements = payload && typeof payload === 'object' && payload.hasFormElements === true;
 
   const run = guard.begin(requestId);
   rememberRun(requestId, run);
@@ -231,7 +232,7 @@ async function runInference(payload = {}, settings = {}, requestId = null) {
 
     // Generate reasons from the structured sender and links when the payload
     // carries them, falling back to the text otherwise.
-    const reasons = generateReasons(predictions, text, settings, { sender, links });
+    const reasons = generateReasons(predictions, text, settings, { sender, links, hasFormElements });
 
     return {
       label,
@@ -265,6 +266,7 @@ function generateReasons(predictions, text = '', settings = {}, structured = {})
     text,
     sender: structured.sender,
     links: structured.links,
+    hasFormElements: structured.hasFormElements,
     settings,
     detector: { isUrlSuspicious, isDomainSuspicious, checkLookalikeBrand }
   });
