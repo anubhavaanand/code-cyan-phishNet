@@ -178,6 +178,26 @@ describe('isDomainSuspicious', () => {
     assert.equal(isDomainSuspicious('github.com'), false);
   });
 
+  test('does not flag ordinary domains merely for four or more consecutive digits', () => {
+    for (const domain of ['12345.com', 'release-2026.example', 'report20261118.org']) {
+      assert.equal(isDomainSuspicious(domain), false, domain);
+    }
+  });
+
+  test('retains independently suspicious domain signals', () => {
+    for (const domain of ['paypa1.com', 'login-confirm.xyz', '192.168.1.1', 'paypal.attacker.com']) {
+      assert.equal(isDomainSuspicious(domain), true, domain);
+    }
+  });
+
+  test('still flags a host that is only digits or a bare hex literal', () => {
+    // 2130706433 and 0x7f000001 are alternate-form literals for 127.0.0.1.
+    // A host with no registrable name cannot be cleared, so it stays suspicious.
+    for (const domain of ['2130706433', '0x7f000001']) {
+      assert.equal(isDomainSuspicious(domain), true, domain);
+    }
+  });
+
   test('tolerates null-ish input', () => {
     assert.equal(typeof isDomainSuspicious(''), 'boolean');
   });

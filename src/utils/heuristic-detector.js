@@ -614,7 +614,13 @@ function isPrivateIpv6Address(host) {
     }
     if (IP_HOSTNAME_REGEX.test(lowerDomain)) return true;
     if (IPV6_HOSTNAME_REGEX.test(lowerDomain)) return true;
-    if (/[0-9]{4,}/.test(lowerDomain)) return true;
+    // A host that is nothing but digits (or a bare 0x-prefixed hex number) has
+    // no registrable name to inspect, so it stays suspicious: 2130706433 and
+    // 0x7f000001 are alternate-form literals for 127.0.0.1. Digit runs inside a
+    // real label (paypal2026.com, release-2026.example) are not, by themselves,
+    // a phishing signal.
+    if (/^\d+$/.test(lowerDomain)) return true;
+    if (/^0x[0-9a-f]+$/i.test(lowerDomain)) return true;
     return false;
   }
 
