@@ -619,7 +619,6 @@ function isPrivateIpv6Address(host) {
     }
     if (IP_HOSTNAME_REGEX.test(lowerDomain)) return true;
     if (IPV6_HOSTNAME_REGEX.test(lowerDomain)) return true;
-    if (/[0-9]{4,}/.test(lowerDomain)) return true;
     return false;
   }
 

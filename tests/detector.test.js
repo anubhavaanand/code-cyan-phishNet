@@ -168,6 +168,18 @@ describe('isDomainSuspicious', () => {
     assert.equal(isDomainSuspicious('github.com'), false);
   });
 
+  test('does not flag ordinary domains merely for four or more consecutive digits', () => {
+    for (const domain of ['12345.com', 'release-2026.example', 'report20261118.org']) {
+      assert.equal(isDomainSuspicious(domain), false, domain);
+    }
+  });
+
+  test('retains independently suspicious domain signals', () => {
+    for (const domain of ['paypa1.com', 'login-confirm.xyz', '192.168.1.1', 'paypal.attacker.com']) {
+      assert.equal(isDomainSuspicious(domain), true, domain);
+    }
+  });
+
   test('tolerates null-ish input', () => {
     assert.equal(typeof isDomainSuspicious(''), 'boolean');
   });
