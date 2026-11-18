@@ -657,12 +657,21 @@
 
     for (let i = 0; i < Math.min(linkElements.length, MAX_EXTRACTED_LINKS); i++) {
       const linkEl = linkElements[i];
-      const href = linkEl.getAttribute('href');
-      if (!href) continue;
+      const rawHref = linkEl.getAttribute('href');
+      if (!rawHref) continue;
 
-      if (!href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('mailto:')) {
-        continue;
+      // Resolve relative and scheme-relative links as the browser would;
+      // keep the raw attribute for residual HTML-entity-encoded values.
+      const hasEntity = /&amp;/i.test(rawHref);
+      let href = hasEntity ? rawHref.replace(/&amp;/gi, '&') : (linkEl.href || rawHref);
+      if (!/^(?:https?:|mailto:)/i.test(href)) {
+        try {
+          href = new URL(href, document.baseURI).href;
+        } catch (e) {
+          continue;
+        }
       }
+      if (!/^(?:https?:|mailto:)/i.test(href)) continue;
 
       let text = (linkEl.textContent || '').trim();
       // An image-only link has no text content. Without a fallback the
