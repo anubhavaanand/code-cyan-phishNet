@@ -93,6 +93,16 @@ describe('brand lookalike detection', () => {
     assert.ok(checkLookalikeBrand('g00gle.com'), 'g00gle.com must be flagged');
   });
 
+  test('flags skeleton lookalikes across ordinary and multi-label public suffixes', () => {
+    for (const domain of ['paypa1.org', 'g00gle.co.uk', 'paypa1.co.jp', 'micros0ft.com.au']) {
+      assert.equal(checkLookalikeBrand(domain)?.type, 'skeleton_spoof', domain);
+    }
+  });
+
+  test('does not mistake a .com-like suffix within an unrelated label for a brand', () => {
+    assert.equal(checkLookalikeBrand('mypaypa1com'), null);
+  });
+
   test('flags transposed typosquats', () => {
     assert.ok(checkLookalikeBrand('payapl.com'), 'payapl.com must be flagged');
   });
