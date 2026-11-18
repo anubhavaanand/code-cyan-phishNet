@@ -15,6 +15,8 @@ on:
     # without needing a commit.
     - cron: '27 4 * * 1'
 
+# cool
+
 permissions:
   contents: read
   security-events: write
