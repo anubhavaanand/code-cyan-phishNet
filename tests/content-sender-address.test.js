@@ -22,10 +22,10 @@ const node = (text, attrs = {}) => ({
   cloneNode() { return this; }
 });
 
-function extractSender({ name, address, nameEmail, emailAttr } = {}) {
+function extractSender({ name, address, nameEmail, nameTitle, emailAttr, addressTitle } = {}) {
   const elements = {
-    '[data-testid="message-header-sender-name"]': name ? node(name, nameEmail ? { email: nameEmail } : {}) : null,
-    '[data-testid="message-header-sender-email"]': address ? node(address, emailAttr ? { email: emailAttr } : {}) : null,
+    '[data-testid="message-header-sender-name"]': name ? node(name, { ...(nameEmail ? { email: nameEmail } : {}), ...(nameTitle ? { title: nameTitle } : {}) }) : null,
+    '[data-testid="message-header-sender-email"]': address ? node(address, { ...(emailAttr ? { email: emailAttr } : {}), ...(addressTitle ? { title: addressTitle } : {}) }) : null,
     '[data-testid="message-body-content"]': node('Please review the attached message body.')
   };
   const element = {
@@ -78,4 +78,36 @@ test('falls back to sender attributes when the dedicated address node is absent'
   const sender = extractSender({ name: 'Legitimate sender', nameEmail: 'user@example.org' });
   assert.equal(sender.email, 'user@example.org');
   assert.equal(sender.domain, 'example.org');
+});
+
+test('a tooltip with an embedded email cannot supply a false trusted sender', () => {
+  const sender = extractSender({
+    name: 'Security Desk',
+    nameTitle: 'Trusted Support <support@trusted.example>',
+    address: 'Display name',
+    addressTitle: 'Forwarded by attacker@evil.example',
+  });
+  assert.equal(sender.email, '');
+  assert.equal(sender.domain, '');
+});
+
+test('email attributes take precedence over a misleading tooltip', () => {
+  const sender = extractSender({
+    name: 'Trusted Support',
+    nameEmail: 'phish@lookalike.example',
+    nameTitle: 'trusted@example.org',
+  });
+  assert.equal(sender.email, 'phish@lookalike.example');
+  assert.equal(sender.domain, 'lookalike.example');
+});
+
+test('malformed email fields cannot smuggle in an embedded address', () => {
+  const sender = extractSender({
+    name: 'Account Support',
+    nameEmail: 'attacker@evil.example via trusted.example',
+    address: 'Not an email',
+    addressTitle: 'help@trusted.example (unverified)',
+  });
+  assert.equal(sender.email, '');
+  assert.equal(sender.domain, '');
 });
