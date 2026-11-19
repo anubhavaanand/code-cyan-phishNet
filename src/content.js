@@ -515,6 +515,26 @@
     return clone;
   }
 
+  /** Accept only complete email addresses, never addresses embedded in tooltips. */
+  function parseSenderEmail(raw) {
+    if (typeof raw !== 'string') return '';
+    let value = raw.trim();
+    if (value.startsWith('<') && value.endsWith('>')) value = value.slice(1, -1).trim();
+    if (value.length > 320) return '';
+    const at = value.indexOf('@');
+    if (at <= 0 || at !== value.lastIndexOf('@')) return '';
+    const local = value.slice(0, at);
+    const domain = value.slice(at + 1);
+    if (local.length > 64 || local.startsWith('.') || local.endsWith('.') || local.includes('..')) {
+      return '';
+    }
+    if (!/^[a-z0-9!#$%&'*+/=?^_\x60{|}~.-]+$/i.test(local)) return '';
+    const domainLabel = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+    const labels = domain.split('.');
+    return domain.length <= 253 && labels.length >= 2 &&
+      labels.every(label => domainLabel.test(label)) ? value : '';
+  }
+
   /**
    * Extract email content and attachments from DOM element
    */
@@ -553,23 +573,21 @@
 
     if (senderEl) {
       senderName = safeText(senderEl);
-      const emailAttr = safeAttr(senderEl, 'email') || safeAttr(senderEl, 'data-email') || safeAttr(senderEl, 'title');
-      if (emailAttr && emailAttr.includes('@')) {
-        senderEmail = emailAttr.replace(/[<>"]/g, '').trim();
-      } else if (senderName.includes('@')) {
-        senderEmail = senderName.replace(/[<>"]/g, '').trim();
-      }
+      senderEmail = parseSenderEmail(safeAttr(senderEl, 'email')) ||
+        parseSenderEmail(safeAttr(senderEl, 'data-email')) ||
+        parseSenderEmail(safeAttr(senderEl, 'title')) ||
+        parseSenderEmail(senderName);
       if (senderEmail) {
-        const match = senderEmail.match(/@([^@\s>]+)/);
-        if (match) senderDomain = match[1].toLowerCase();
+        senderDomain = senderEmail.split('@')[1].toLowerCase();
       }
     }
     if (senderEmailEl) {
-      const value = safeAttr(senderEmailEl, 'email') || safeAttr(senderEmailEl, 'data-email') ||
-        safeAttr(senderEmailEl, 'title') || safeText(senderEmailEl);
-      const match = value.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/);
-      if (match) {
-        senderEmail = match[0];
+      const address = parseSenderEmail(safeAttr(senderEmailEl, 'email')) ||
+        parseSenderEmail(safeAttr(senderEmailEl, 'data-email')) ||
+        parseSenderEmail(safeAttr(senderEmailEl, 'title')) ||
+        parseSenderEmail(safeText(senderEmailEl));
+      if (address) {
+        senderEmail = address;
         senderDomain = senderEmail.split('@')[1].toLowerCase();
       }
     }
