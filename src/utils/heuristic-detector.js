@@ -510,7 +510,36 @@ function isPrivateIpv6Address(host) {
     return { filename, dangerous: false };
   }
 
-  const OPEN_REDIRECT_REGEX = /[?&](url|redirect|redir|next|continue|dest|destination|return)=/i;
+  const REDIRECT_PARAMS = new Set(['url', 'redirect', 'redir', 'next', 'continue', 'dest', 'destination', 'return']);
+
+  // Check the actual destination rather than merely finding a URL-shaped
+  // substring in a query parameter. URLSearchParams decodes one level;
+  // a bounded second/third pass handles nested encoding without loops.
+  function hasCrossOriginRedirect(source) {
+    for (const [name, value] of source.searchParams) {
+      if (!REDIRECT_PARAMS.has(name.toLowerCase())) continue;
+      let candidate = value.trim();
+      for (let depth = 0; depth < 3; depth++) {
+        if (/^(?:https?:)?\/\//i.test(candidate)) {
+          try {
+            const target = new URL(candidate, source);
+            if (target.origin !== source.origin) return true;
+          } catch {
+            // An invalid target is not evidence of a cross-origin redirect.
+          }
+          break;
+        }
+        try {
+          const decoded = decodeURIComponent(candidate).trim();
+          if (decoded === candidate) break;
+          candidate = decoded;
+        } catch {
+          break;
+        }
+      }
+    }
+    return false;
+  }
   const DANGEROUS_SCHEME_REGEX = /^\s*(data|javascript|vbscript|file):/i;
 
   function isUrlSuspicious(url) {
@@ -555,11 +584,9 @@ function isPrivateIpv6Address(host) {
       if (domain === s || domain.endsWith('.' + s)) return true;
     }
 
-    if (brandHost) {
-      // official hosts still fail on open-redirect params
-      if (OPEN_REDIRECT_REGEX.test(raw) && /https?%3a%2f%2f|https?:\/\/[^.]/i.test(raw)) return true;
-      return false;
-    }
+    // Official and non-official hosts must use the same destination check.
+    if (hasCrossOriginRedirect(parsed)) return true;
+    if (brandHost) return false;
 
     for (const tld of SUSPICIOUS_TLD_SET) {
       if (domain.endsWith(tld.startsWith('.') ? tld : '.' + tld)) return true;
@@ -578,8 +605,7 @@ function isPrivateIpv6Address(host) {
     const sld = reg.split('.')[0];
     if ((sld.match(/-/g) || []).length >= 3) return true;
 
-    // open-redirect parameters pointing off-host
-    if (OPEN_REDIRECT_REGEX.test(raw) && /(https?%3a%2f%2f|https?:\/\/)/i.test(raw)) return true;
+
 
     // A keyword only counts when it stands as its own label or as a
     // hyphen/underscore-separated word. Plain substring matching flagged
