@@ -834,13 +834,24 @@ function isPrivateIpv6Address(host) {
 
     // ---- aggregate with logistic calibration ----
     let totalRisk = urgencyScore + senderTrustScore + linkRiskScore + attachmentRiskScore;
-    if (dangerousAttachmentCount > 0) totalRisk = Math.max(totalRisk, 70); // floor for weaponized attachments
+    if (dangerousAttachmentCount > 0) {
+      // Executables warrant a warning, but an attachment alone does not
+      // establish phishing. Preserve the stronger response when sender or
+      // link evidence corroborates the attachment.
+      if (senderTrustScore > 0 || linkRiskScore > 0) {
+        totalRisk = Math.max(totalRisk, 70);
+      } else {
+        // Two attachments (or a routine invoice subject) must not silently
+        // turn an uncorroborated file type into a phishing verdict.
+        totalRisk = Math.min(totalRisk, LOGISTIC_MIDPOINT);
+      }
+    }
     totalRisk = Math.min(totalRisk, 100);
 
     const confidence = squash(totalRisk);
 
     let label = 'legitimate_email';
-    if (confidence >= 0.65 || dangerousAttachmentCount > 0) label = 'phishing_email';
+    if (confidence >= 0.65) label = 'phishing_email';
     else if (confidence >= 0.35) label = 'uncertain';
 
     return {
