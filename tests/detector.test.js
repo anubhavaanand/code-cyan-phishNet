@@ -614,16 +614,32 @@ describe('heuristicDetect — classification', () => {
     assert.ok(result.reasons.length > 0, 'expected at least one human-readable reason');
   });
 
-  test('flags a dangerous attachment', () => {
-    const result = heuristicDetect({
+  test('warns on dangerous attachments without falsely declaring phishing', () => {
+    const base = {
       subject: 'Invoice past due',
       text: 'Please find attached invoice for review.',
       sender: { email: 'billing@random-services.net', domain: 'random-services.net' },
       attachments: [{ name: 'Invoice_Aug.pdf.exe' }],
-    });
+    };
+    const alone = heuristicDetect(base);
+    assert.equal(alone.label, 'uncertain');
+    assert.ok(alone.reasons.some((r) => /dangerous attachment/i.test(r)));
+    assert.equal(alone.attachments[0].dangerous, true);
 
-    assert.equal(result.label, 'phishing_email');
-    assert.ok(result.reasons.some((r) => /dangerous attachment/i.test(r)));
+    // Even multiple dangerous files cannot substitute for independent
+    // phishing evidence from the sender or link destination.
+    const multiple = heuristicDetect({
+      ...base, attachments: [{ name: 'Invoice_Aug.pdf.exe' }, { name: 'Receipt.zip.exe' }]
+    });
+    assert.equal(multiple.label, 'uncertain');
+
+    const corroborated = heuristicDetect({
+      ...base,
+      links: [{ href: 'http://phishing.example.tk/login', text: 'View invoice' }]
+    });
+    assert.equal(corroborated.label, 'phishing_email');
+    assert.ok(corroborated.signals.linkRiskScore > 0);
+    assert.ok(corroborated.signals.totalRiskScore >= 70);
   });
 
   test('classifies a routine notification as legitimate', () => {
