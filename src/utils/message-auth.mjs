@@ -96,8 +96,14 @@ export function checkSender(type, sender, extensionId, isMailTab) {
   if (!sender || typeof sender !== 'object') return { ok: false, error: 'Message has no sender' };
   if (sender.id !== extensionId) return { ok: false, error: 'Message is not from this extension' };
 
-  // Offscreen status is only ever produced by the offscreen document itself.
-  if (OFFSCREEN.has(type)) return { ok: true };
+  // Chrome supplies sender.url; the message type alone is not proof of origin.
+  // A mail-tab content script must never be able to forge an inference result.
+  if (OFFSCREEN.has(type)) {
+    const url = `chrome-extension://${extensionId}/public/offscreen.html`;
+    return sender.tab == null && sender.url === url
+      ? { ok: true }
+      : { ok: false, error: 'Message is not from the offscreen document' };
+  }
 
   const fromTab = sender.tab !== undefined && sender.tab !== null;
 
