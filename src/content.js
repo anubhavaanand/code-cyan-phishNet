@@ -229,16 +229,23 @@
       const subjectEl = element.querySelector(selectors.subject) || element.querySelector(selectors.subjectAlt);
 
       if (senderEl || subjectEl) {
-        const str = (senderEl?.textContent || '') + '::' + (subjectEl?.textContent || '');
-        try {
-          // btoa throws on non-Latin1; the TextEncoder path handles any script.
-          const bytes = new TextEncoder().encode(str);
-          let binary = '';
-          for (const b of bytes) binary += String.fromCharCode(b);
-          return btoa(binary).slice(0, 32);
-        } catch (e) {
-          return str.slice(0, 32);
+        // Include the entire message, not just the first 24 decoded bytes
+        // of sender/subject. Otherwise similarly titled emails collapse to
+        // one ID and the second message may never be scanned.
+        const signature = [
+          senderEl?.textContent || '',
+          subjectEl?.textContent || '',
+          element.textContent || ''
+        ].join('\0');
+        const bytes = new TextEncoder().encode(signature);
+        // Synchronous 64-bit FNV-1a: stable across reloads and Unicode-safe.
+        // This is a deduplication key, not a cryptographic identity.
+        let hash = 0xcbf29ce484222325n;
+        for (const byte of bytes) {
+          hash ^= BigInt(byte);
+          hash = BigInt.asUintN(64, hash * 0x100000001b3n);
         }
+        return 'fallback-' + hash.toString(16).padStart(16, '0');
       }
     }
 
