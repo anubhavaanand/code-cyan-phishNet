@@ -17,15 +17,25 @@ export function useSettings() {
 
   useEffect(() => {
     let mounted = true;
+    // Sequence number incremented by every SETTINGS_UPDATE. If an update
+    // arrives while getSettings() is in flight, the getSettings() snapshot is
+    // stale and must not clobber the newer pushed state (issue #362).
+    let updateSeq = 0;
 
-    getSettings().then((res) => {
+    const fetchAndApply = async () => {
+      const seqAtStart = updateSeq;
+      const res = await getSettings();
       if (!mounted || !res) return;
+      // Only apply the snapshot if no newer update landed while we waited.
+      if (seqAtStart !== updateSeq) return;
       setSettings({ ...DEFAULT_SETTINGS, ...res });
       setLoaded(true);
-    });
+    };
+    fetchAndApply();
 
     const unsub = onSettingsUpdate((payload) => {
       if (!mounted || !payload) return;
+      updateSeq += 1;
       setSettings((prev) => ({ ...prev, ...payload }));
     });
 
