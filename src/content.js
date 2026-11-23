@@ -43,7 +43,7 @@
   // Last verdict per element, so a settings change can re-render without
   // re-running inference.
   const renderedResults = new Map();
-  let activeSettings = { highlightLinks: true, sensitivityThreshold: 0.7 };
+  let activeSettings = { autoScan: true, sensitivityThreshold: 0.7, highlightLinks: true, showTooltip: true };
   const MAX_TRACKED_IDS = 50;
   // Long enough that a signature or footer does not push the real content past
   // the cut. The model still truncates to its own token budget.
@@ -63,7 +63,7 @@
   /**
    * Initialize content script
    */
-  function init() {
+  async function init() {
     currentSelectors = getSelectorsForCurrentSite();
 
     if (!currentSelectors) {
@@ -73,14 +73,13 @@
 
     logger.debug(`Initialized for ${currentSelectors.provider} (${currentSelectors.variant})`);
 
+    // Load settings once so scans use the cached copy instead of round-tripping
+    // to the service worker on every email (issue #148). SETTINGS_UPDATE keeps
+    // the copy fresh afterwards.
+    await fetchSettings();
+
     // Start consolidated observer
     startEmailObserver();
-
-    // Listen for messages from background/popup
-    if (!messageListenerRegistered) {
-      chrome.runtime.onMessage.addListener(handleMessage);
-      messageListenerRegistered = true;
-    }
 
     // A hidden-then-restored tab needs its own sweep; the observer only sees
     // mutations, not a tab that was in the background.
@@ -88,6 +87,27 @@
 
     // Notify background that content script is ready
     chrome.runtime.sendMessage({ type: 'CONTENT_READY', provider: currentSelectors.provider }).catch(() => {});
+  }
+
+  /**
+   * Load settings once and keep them cached in activeSettings.
+   * Falls back to defaults if the worker is asleep or unreachable.
+   */
+  async function fetchSettings() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
+      if (response && typeof response === 'object') {
+        activeSettings = {
+          autoScan: true,
+          sensitivityThreshold: 0.7,
+          highlightLinks: true,
+          showTooltip: true,
+          ...response
+        };
+      }
+    } catch (e) {
+      logger.debug('Using default settings for scan');
+    }
   }
 
   /**
@@ -267,14 +287,9 @@
     try {
       const emailContent = extractEmailContent(element);
 
-      // Get non-sensitive preferences; whitelist decisions remain in the extension background.
-      let settings = { autoScan: true, sensitivityThreshold: 0.7, highlightLinks: true, showTooltip: true };
-      try {
-        const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
-        if (response) settings = Object.assign(settings, response);
-      } catch (e) {
-        logger.debug('Using default settings for scan');
-      }
+      // Use cached settings instead of round-tripping to the service worker on
+      // every scan (issue #148). SETTINGS_UPDATE keeps activeSettings fresh.
+      const settings = activeSettings;
 
       const senderEmail = emailContent.sender?.email?.toLowerCase() || '';
       const senderDomain = emailContent.sender?.domain?.toLowerCase() || '';
@@ -760,7 +775,7 @@
             .trim().replace(/[. ]+$/, '');
           // Keep the suffix (including a dangerous extension) for oversized
           // names while bounding the payload passed to the detector.
-          const boundedName = clean.length > 255 ? `…${clean.slice(-254)}` : clean;
+          const boundedName = clean.length > 100 ? clean.slice(-100) : clean;
           // A message can contain different files with the same filename.
           // Dedupe overlapping DOM selectors by identity, not name alone.
           const container = el.closest?.('[data-testid*="attachment"], .aZo') || el;
@@ -1265,8 +1280,8 @@
 
   // Initialize
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', () => init().catch(() => {}));
   } else {
-    init();
+    init().catch(() => {});
   }
 })();
