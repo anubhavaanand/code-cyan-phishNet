@@ -229,16 +229,23 @@
       const subjectEl = element.querySelector(selectors.subject) || element.querySelector(selectors.subjectAlt);
 
       if (senderEl || subjectEl) {
-        const str = (senderEl?.textContent || '') + '::' + (subjectEl?.textContent || '');
-        try {
-          // btoa throws on non-Latin1; the TextEncoder path handles any script.
-          const bytes = new TextEncoder().encode(str);
-          let binary = '';
-          for (const b of bytes) binary += String.fromCharCode(b);
-          return btoa(binary).slice(0, 32);
-        } catch (e) {
-          return str.slice(0, 32);
+        // Include the entire message, not just the first 24 decoded bytes
+        // of sender/subject. Otherwise similarly titled emails collapse to
+        // one ID and the second message may never be scanned.
+        const signature = [
+          senderEl?.textContent || '',
+          subjectEl?.textContent || '',
+          element.textContent || ''
+        ].join('\0');
+        const bytes = new TextEncoder().encode(signature);
+        // Synchronous 64-bit FNV-1a: stable across reloads and Unicode-safe.
+        // This is a deduplication key, not a cryptographic identity.
+        let hash = 0xcbf29ce484222325n;
+        for (const byte of bytes) {
+          hash ^= BigInt(byte);
+          hash = BigInt.asUintN(64, hash * 0x100000001b3n);
         }
+        return 'fallback-' + hash.toString(16).padStart(16, '0');
       }
     }
 
@@ -515,6 +522,26 @@
     return clone;
   }
 
+  /** Accept only complete email addresses, never addresses embedded in tooltips. */
+  function parseSenderEmail(raw) {
+    if (typeof raw !== 'string') return '';
+    let value = raw.trim();
+    if (value.startsWith('<') && value.endsWith('>')) value = value.slice(1, -1).trim();
+    if (value.length > 320) return '';
+    const at = value.indexOf('@');
+    if (at <= 0 || at !== value.lastIndexOf('@')) return '';
+    const local = value.slice(0, at);
+    const domain = value.slice(at + 1);
+    if (local.length > 64 || local.startsWith('.') || local.endsWith('.') || local.includes('..')) {
+      return '';
+    }
+    if (!/^[a-z0-9!#$%&'*+/=?^_\x60{|}~.-]+$/i.test(local)) return '';
+    const domainLabel = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+    const labels = domain.split('.');
+    return domain.length <= 253 && labels.length >= 2 &&
+      labels.every(label => domainLabel.test(label)) ? value : '';
+  }
+
   /**
    * Extract email content and attachments from DOM element
    */
@@ -553,23 +580,21 @@
 
     if (senderEl) {
       senderName = safeText(senderEl);
-      const emailAttr = safeAttr(senderEl, 'email') || safeAttr(senderEl, 'data-email') || safeAttr(senderEl, 'title');
-      if (emailAttr && emailAttr.includes('@')) {
-        senderEmail = emailAttr.replace(/[<>"]/g, '').trim();
-      } else if (senderName.includes('@')) {
-        senderEmail = senderName.replace(/[<>"]/g, '').trim();
-      }
+      senderEmail = parseSenderEmail(safeAttr(senderEl, 'email')) ||
+        parseSenderEmail(safeAttr(senderEl, 'data-email')) ||
+        parseSenderEmail(safeAttr(senderEl, 'title')) ||
+        parseSenderEmail(senderName);
       if (senderEmail) {
-        const match = senderEmail.match(/@([^@\s>]+)/);
-        if (match) senderDomain = match[1].toLowerCase();
+        senderDomain = senderEmail.split('@')[1].toLowerCase();
       }
     }
     if (senderEmailEl) {
-      const value = safeAttr(senderEmailEl, 'email') || safeAttr(senderEmailEl, 'data-email') ||
-        safeAttr(senderEmailEl, 'title') || safeText(senderEmailEl);
-      const match = value.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/);
-      if (match) {
-        senderEmail = match[0];
+      const address = parseSenderEmail(safeAttr(senderEmailEl, 'email')) ||
+        parseSenderEmail(safeAttr(senderEmailEl, 'data-email')) ||
+        parseSenderEmail(safeAttr(senderEmailEl, 'title')) ||
+        parseSenderEmail(safeText(senderEmailEl));
+      if (address) {
+        senderEmail = address;
         senderDomain = senderEmail.split('@')[1].toLowerCase();
       }
     }
@@ -657,12 +682,21 @@
 
     for (let i = 0; i < Math.min(linkElements.length, MAX_EXTRACTED_LINKS); i++) {
       const linkEl = linkElements[i];
-      const href = linkEl.getAttribute('href');
-      if (!href) continue;
+      const rawHref = linkEl.getAttribute('href');
+      if (!rawHref) continue;
 
-      if (!href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('mailto:')) {
-        continue;
+      // Resolve relative and scheme-relative links as the browser would;
+      // keep the raw attribute for residual HTML-entity-encoded values.
+      const hasEntity = /&amp;/i.test(rawHref);
+      let href = hasEntity ? rawHref.replace(/&amp;/gi, '&') : (linkEl.href || rawHref);
+      if (!/^(?:https?:|mailto:)/i.test(href)) {
+        try {
+          href = new URL(href, document.baseURI).href;
+        } catch (e) {
+          continue;
+        }
       }
+      if (!/^(?:https?:|mailto:)/i.test(href)) continue;
 
       let text = (linkEl.textContent || '').trim();
       // An image-only link has no text content. Without a fallback the
@@ -720,6 +754,7 @@
             break;
           }
           const name = el.getAttribute('title') || el.getAttribute('download') || el.textContent || '';
+<<<<<<< HEAD
           // Normalize invisible/directional formatting and filesystem trailing
           // punctuation before the filename reaches attachment heuristics.
           const clean = name.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g, '')
@@ -727,6 +762,16 @@
           // Keep the suffix (including a dangerous extension) for oversized
           // names while bounding the payload passed to the detector.
           const boundedName = clean.length > 255 ? `…${clean.slice(-254)}` : clean;
+=======
+          // Normalize deceptive display names before they reach the detector.
+          // Keep the final 100 characters so long filenames cannot hide an
+          // executable extension by exceeding the extraction size limit.
+          const clean = name
+            .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+            .trim()
+            .replace(/[.\s]+$/g, '')
+            .slice(-100);
+>>>>>>> origin/main
           // A message can contain different files with the same filename.
           // Dedupe overlapping DOM selectors by identity, not name alone.
           const container = el.closest?.('[data-testid*="attachment"], .aZo') || el;
@@ -736,8 +781,13 @@
             (selectors.attachmentSizes && container.querySelector?.(selectors.attachmentSizes)?.textContent) || '').trim();
           const type = (attr(el, ['data-mime-type', 'data-type', 'type']) ||
             attr(container, ['data-mime-type', 'data-type', 'type'])).trim().toLowerCase();
+<<<<<<< HEAD
           const identity = JSON.stringify([boundedName, size, type]);
           if (boundedName && !seenAttachments.has(identity)) {
+=======
+          const identity = JSON.stringify([clean, size, type]);
+          if (clean && !seenAttachments.has(identity)) {
+>>>>>>> origin/main
             seenAttachments.add(identity);
             attachments.push(boundedName);
           }

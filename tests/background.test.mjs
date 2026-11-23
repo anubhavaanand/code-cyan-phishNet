@@ -190,6 +190,7 @@ describe('SCAN_EMAIL gating', () => {
       { text: 'ok', attachments: [{ name: 'n'.repeat(1025) }] },
       { text: 'ok', sender: { email: 'e'.repeat(1025) } },
       { text: 'ok', links: 'not an array' },
+      { text: 'ok', hasFormElements: 'true' },
     ]) {
       const sentBefore = mock.sentMessages.filter(m => m.type === 'RUN_INFERENCE').length;
       const res = await send({ type: 'SCAN_EMAIL', payload }, tabSender);
@@ -230,6 +231,7 @@ describe('SCAN_EMAIL gating', () => {
       links: Array(128).fill({ href: 'https://example.com' }),
       attachments: Array(64).fill({ name: 'document.pdf' }),
       sender: { email: 'sender@example.com' },
+      hasFormElements: true,
       unexpectedNestedField: { unused: true }
     };
     const res = await send({ type: 'SCAN_EMAIL', payload }, tabSender);
@@ -240,7 +242,8 @@ describe('SCAN_EMAIL gating', () => {
     assert.deepEqual(forwarded.payload, {
       text: payload.text,
       sender: payload.sender,
-      links: payload.links
+      links: payload.links,
+      hasFormElements: true
     });
     assert.equal('attachments' in forwarded.payload, false);
     assert.equal('unexpectedNestedField' in forwarded.payload, false);

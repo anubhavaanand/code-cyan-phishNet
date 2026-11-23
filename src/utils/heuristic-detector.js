@@ -443,20 +443,21 @@ function isPrivateIpv6Address(host) {
     if (isOfficialBrandHost(cleanDomain)) return null;
 
     const parts = cleanDomain.split('.');
-    const mainName = parts.length > 1 ? parts[parts.length - 2] : cleanDomain;
+    // Resolve the registrable label without assuming a one-part TLD (.com),
+    // so confusable brands on .co.uk, .co.jp, etc. get the same analysis.
+    const registrableParts = getRegistrableDomain(cleanDomain).split('.');
+    const mainName = registrableParts[0];
     const skelMain = skeleton(mainName);
-    const skelDomain = skeleton(cleanDomain);
-    // Everything before the registrable label: the subdomain labels plus any
-    // multi-part suffix. A brand here is a deception; a brand inside a longer
-    // label is not.
-    const labelsBeforeTld = parts.slice(0, -1);
+    // Only labels before the registrable domain are subdomains. The
+    // registrable label itself is analyzed as a possible skeleton spoof.
+    const subdomainLabels = parts.slice(0, -registrableParts.length);
 
     for (const brand of BRAND_SET) {
       // subdomain deception: a brand used as a whole label somewhere other than
       // the registrable name. Comparing labels rather than substrings is what
       // separates github.evil.com (deceptive) from mygithub.io and
       // notamazon.com (legitimate domains that merely contain the word).
-      if (mainName !== brand && labelsBeforeTld.some((l) => l === brand || skeleton(l) === brand)) {
+      if (mainName !== brand && subdomainLabels.some((l) => l === brand || skeleton(l) === brand)) {
         return { brand, type: 'subdomain_deception', reason: `Brand '${brand}' deceptive use in subdomain or domain` };
       }
       // typosquatting on skeleton forms with Damerau distance.
@@ -474,12 +475,6 @@ function isPrivateIpv6Address(host) {
         const compound = mainName.startsWith(brand) || mainName.endsWith(brand);
         if (dist === 1 || (dist === 2 && mainName.length >= 6 && !compound)) {
           return { brand, type: 'typosquatting', reason: `Typosquatted lookalike domain for '${brand}' (${mainName})` };
-        }
-      }
-      // whole-domain skeleton match (catches digit folds like g00gle.com)
-      if (skelDomain === brand || skelDomain.endsWith(brand + 'com')) {
-        if (skelDomain !== cleanDomain || /\d/.test(mainName)) {
-          return { brand, type: 'skeleton_spoof', reason: `Confusable characters spoofing '${brand}' (${cleanDomain})` };
         }
       }
     }
@@ -515,7 +510,36 @@ function isPrivateIpv6Address(host) {
     return { filename, dangerous: false };
   }
 
-  const OPEN_REDIRECT_REGEX = /[?&](url|redirect|redir|next|continue|dest|destination|return)=/i;
+  const REDIRECT_PARAMS = new Set(['url', 'redirect', 'redir', 'next', 'continue', 'dest', 'destination', 'return']);
+
+  // Check the actual destination rather than merely finding a URL-shaped
+  // substring in a query parameter. URLSearchParams decodes one level;
+  // a bounded second/third pass handles nested encoding without loops.
+  function hasCrossOriginRedirect(source) {
+    for (const [name, value] of source.searchParams) {
+      if (!REDIRECT_PARAMS.has(name.toLowerCase())) continue;
+      let candidate = value.trim();
+      for (let depth = 0; depth < 3; depth++) {
+        if (/^(?:https?:)?\/\//i.test(candidate)) {
+          try {
+            const target = new URL(candidate, source);
+            if (target.origin !== source.origin) return true;
+          } catch {
+            // An invalid target is not evidence of a cross-origin redirect.
+          }
+          break;
+        }
+        try {
+          const decoded = decodeURIComponent(candidate).trim();
+          if (decoded === candidate) break;
+          candidate = decoded;
+        } catch {
+          break;
+        }
+      }
+    }
+    return false;
+  }
   const DANGEROUS_SCHEME_REGEX = /^\s*(data|javascript|vbscript|file):/i;
 
   function isUrlSuspicious(url) {
@@ -560,11 +584,9 @@ function isPrivateIpv6Address(host) {
       if (domain === s || domain.endsWith('.' + s)) return true;
     }
 
-    if (brandHost) {
-      // official hosts still fail on open-redirect params
-      if (OPEN_REDIRECT_REGEX.test(raw) && /https?%3a%2f%2f|https?:\/\/[^.]/i.test(raw)) return true;
-      return false;
-    }
+    // Official and non-official hosts must use the same destination check.
+    if (hasCrossOriginRedirect(parsed)) return true;
+    if (brandHost) return false;
 
     for (const tld of SUSPICIOUS_TLD_SET) {
       if (domain.endsWith(tld.startsWith('.') ? tld : '.' + tld)) return true;
@@ -583,8 +605,7 @@ function isPrivateIpv6Address(host) {
     const sld = reg.split('.')[0];
     if ((sld.match(/-/g) || []).length >= 3) return true;
 
-    // open-redirect parameters pointing off-host
-    if (OPEN_REDIRECT_REGEX.test(raw) && /(https?%3a%2f%2f|https?:\/\/)/i.test(raw)) return true;
+
 
     // A keyword only counts when it stands as its own label or as a
     // hyphen/underscore-separated word. Plain substring matching flagged
@@ -619,7 +640,13 @@ function isPrivateIpv6Address(host) {
     }
     if (IP_HOSTNAME_REGEX.test(lowerDomain)) return true;
     if (IPV6_HOSTNAME_REGEX.test(lowerDomain)) return true;
-    if (/[0-9]{4,}/.test(lowerDomain)) return true;
+    // A host that is nothing but digits (or a bare 0x-prefixed hex number) has
+    // no registrable name to inspect, so it stays suspicious: 2130706433 and
+    // 0x7f000001 are alternate-form literals for 127.0.0.1. Digit runs inside a
+    // real label (paypal2026.com, release-2026.example) are not, by themselves,
+    // a phishing signal.
+    if (/^\d+$/.test(lowerDomain)) return true;
+    if (/^0x[0-9a-f]+$/i.test(lowerDomain)) return true;
     return false;
   }
 
@@ -839,13 +866,24 @@ function isPrivateIpv6Address(host) {
 
     // ---- aggregate with logistic calibration ----
     let totalRisk = urgencyScore + senderTrustScore + linkRiskScore + attachmentRiskScore;
-    if (dangerousAttachmentCount > 0) totalRisk = Math.max(totalRisk, 70); // floor for weaponized attachments
+    if (dangerousAttachmentCount > 0) {
+      // Executables warrant a warning, but an attachment alone does not
+      // establish phishing. Preserve the stronger response when sender or
+      // link evidence corroborates the attachment.
+      if (senderTrustScore > 0 || linkRiskScore > 0) {
+        totalRisk = Math.max(totalRisk, 70);
+      } else {
+        // Two attachments (or a routine invoice subject) must not silently
+        // turn an uncorroborated file type into a phishing verdict.
+        totalRisk = Math.min(totalRisk, LOGISTIC_MIDPOINT);
+      }
+    }
     totalRisk = Math.min(totalRisk, 100);
 
     const confidence = squash(totalRisk);
 
     let label = 'legitimate_email';
-    if (confidence >= 0.65 || dangerousAttachmentCount > 0) label = 'phishing_email';
+    if (confidence >= 0.65) label = 'phishing_email';
     else if (confidence >= 0.35) label = 'uncertain';
 
     return {

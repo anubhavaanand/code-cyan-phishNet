@@ -68,6 +68,7 @@ function validScanPayload(payload) {
   if (typeof payload.text !== 'string' || payload.text.length > MAX_SCAN_TEXT ||
       !fitsText(payload.subject, MAX_SCAN_SUBJECT) ||
       !fitsText(payload.body, MAX_SCAN_TEXT)) return false;
+  if (payload.hasFormElements !== undefined && typeof payload.hasFormElements !== 'boolean') return false;
 
   if (payload.links !== undefined) {
     if (!Array.isArray(payload.links) || payload.links.length > MAX_SCAN_LINKS) return false;
@@ -274,13 +275,14 @@ async function handleIncomingMessage(message, sender) {
       }
 
       try {
-        // Forward the sender and links the model's reason generation needs, but
+        // Forward the sender, links and form signal the model's reason generation needs, but
         // nothing else: the body, subject, attachments, and any other field
         // stay out of the offscreen document. Both are already bounded by
         // validScanPayload above.
         const payload = { text: message.payload.text };
         if (message.payload.sender !== undefined) payload.sender = message.payload.sender;
         if (message.payload.links !== undefined) payload.links = message.payload.links;
+        if (message.payload.hasFormElements === true) payload.hasFormElements = true;
         const result = await runInference(payload);
         return { success: true, result };
       } catch (error) {

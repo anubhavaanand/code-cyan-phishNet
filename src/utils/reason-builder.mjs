@@ -88,6 +88,7 @@ export function collectSenderDomain({ sender, text } = {}) {
  * @param {string} [params.text]
  * @param {{domain?: string, email?: string}} [params.sender]
  * @param {{href?: string}[]} [params.links]
+ * @param {boolean} [params.hasFormElements] whether the email body includes interactive HTML forms
  * @param {object} [params.settings]
  * @param {object} params.detector the detection helpers (`isUrlSuspicious`,
  *   `isDomainSuspicious`, `checkLookalikeBrand`)
@@ -98,6 +99,7 @@ export function buildReasons({
   text = '',
   sender,
   links,
+  hasFormElements = false,
   settings = {},
   detector
 }) {
@@ -121,6 +123,11 @@ export function buildReasons({
   const foundKeywords = PHISHING_KEYWORDS.filter((kw) => lowerText.includes(kw));
   if (foundKeywords.length > 0) {
     reasons.push(`Contains urgency keywords: ${foundKeywords.slice(0, 3).join(', ')}`);
+  }
+
+  // The DOM structure does not survive conversion to model input text.
+  if (hasFormElements === true) {
+    reasons.push('Interactive form elements inside email');
   }
 
   // Links.

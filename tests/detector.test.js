@@ -93,6 +93,16 @@ describe('brand lookalike detection', () => {
     assert.ok(checkLookalikeBrand('g00gle.com'), 'g00gle.com must be flagged');
   });
 
+  test('flags skeleton lookalikes across ordinary and multi-label public suffixes', () => {
+    for (const domain of ['paypa1.org', 'g00gle.co.uk', 'paypa1.co.jp', 'micros0ft.com.au']) {
+      assert.equal(checkLookalikeBrand(domain)?.type, 'skeleton_spoof', domain);
+    }
+  });
+
+  test('does not mistake a .com-like suffix within an unrelated label for a brand', () => {
+    assert.equal(checkLookalikeBrand('mypaypa1com'), null);
+  });
+
   test('flags transposed typosquats', () => {
     assert.ok(checkLookalikeBrand('payapl.com'), 'payapl.com must be flagged');
   });
@@ -166,6 +176,26 @@ describe('isDomainSuspicious', () => {
 
   test('accepts ordinary domains', () => {
     assert.equal(isDomainSuspicious('github.com'), false);
+  });
+
+  test('does not flag ordinary domains merely for four or more consecutive digits', () => {
+    for (const domain of ['12345.com', 'release-2026.example', 'report20261118.org']) {
+      assert.equal(isDomainSuspicious(domain), false, domain);
+    }
+  });
+
+  test('retains independently suspicious domain signals', () => {
+    for (const domain of ['paypa1.com', 'login-confirm.xyz', '192.168.1.1', 'paypal.attacker.com']) {
+      assert.equal(isDomainSuspicious(domain), true, domain);
+    }
+  });
+
+  test('still flags a host that is only digits or a bare hex literal', () => {
+    // 2130706433 and 0x7f000001 are alternate-form literals for 127.0.0.1.
+    // A host with no registrable name cannot be cleared, so it stays suspicious.
+    for (const domain of ['2130706433', '0x7f000001']) {
+      assert.equal(isDomainSuspicious(domain), true, domain);
+    }
   });
 
   test('tolerates null-ish input', () => {
@@ -415,6 +445,27 @@ describe('URL analysis', () => {
     );
   });
 
+  test('checks redirect targets rather than flagging all URL-valued parameters', () => {
+    for (const url of [
+      'https://newsletter-provider.example.net/?redirect=https%3A%2F%2Fnewsletter-provider.example.net%2Finbox',
+      'https://newsletter-provider.example.net/?return=%2Fsettings',
+      'https://paypal.com/?continue=https%3A%2F%2Fpaypal.com%2Fmyaccount',
+      'https://newsletter-provider.example.net/?note=https%3A%2F%2Fevil.example.com'
+    ]) {
+      assert.equal(isUrlSuspicious(url), false, url);
+    }
+
+    for (const url of [
+      'https://newsletter-provider.example.net/?redirect=https%3A%2F%2Fevil.example.com%2Flogin',
+      'https://newsletter-provider.example.net/?redirect=%2F%2Fevil.example.com%2Flogin',
+      'https://newsletter-provider.example.net/?url=https%253A%252F%252Fevil.example.com',
+      'https://paypal.com/?continue=https%3A%2F%2Fevil.example.com',
+      'https://newsletter-provider.example.net/?next=http%3A%2F%2Fnewsletter-provider.example.net%2Flogin'
+    ]) {
+      assert.equal(isUrlSuspicious(url), true, url);
+    }
+  });
+
   test('flags invisible-character obfuscation', () => {
     assert.equal(isUrlSuspicious('https://example.co\u200Bm/secure'), true);
   });
@@ -604,16 +655,32 @@ describe('heuristicDetect — classification', () => {
     assert.ok(result.reasons.length > 0, 'expected at least one human-readable reason');
   });
 
-  test('flags a dangerous attachment', () => {
-    const result = heuristicDetect({
+  test('warns on dangerous attachments without falsely declaring phishing', () => {
+    const base = {
       subject: 'Invoice past due',
       text: 'Please find attached invoice for review.',
       sender: { email: 'billing@random-services.net', domain: 'random-services.net' },
       attachments: [{ name: 'Invoice_Aug.pdf.exe' }],
-    });
+    };
+    const alone = heuristicDetect(base);
+    assert.equal(alone.label, 'uncertain');
+    assert.ok(alone.reasons.some((r) => /dangerous attachment/i.test(r)));
+    assert.equal(alone.attachments[0].dangerous, true);
 
-    assert.equal(result.label, 'phishing_email');
-    assert.ok(result.reasons.some((r) => /dangerous attachment/i.test(r)));
+    // Even multiple dangerous files cannot substitute for independent
+    // phishing evidence from the sender or link destination.
+    const multiple = heuristicDetect({
+      ...base, attachments: [{ name: 'Invoice_Aug.pdf.exe' }, { name: 'Receipt.zip.exe' }]
+    });
+    assert.equal(multiple.label, 'uncertain');
+
+    const corroborated = heuristicDetect({
+      ...base,
+      links: [{ href: 'http://phishing.example.tk/login', text: 'View invoice' }]
+    });
+    assert.equal(corroborated.label, 'phishing_email');
+    assert.ok(corroborated.signals.linkRiskScore > 0);
+    assert.ok(corroborated.signals.totalRiskScore >= 70);
   });
 
   test('classifies a routine notification as legitimate', () => {

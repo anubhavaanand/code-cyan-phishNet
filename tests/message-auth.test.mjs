@@ -26,6 +26,7 @@ const mailTab = { id: EXT, tab: { id: 1, url: 'https://mail.google.com/mail/u/0/
 const otherTab = { id: EXT, tab: { id: 2, url: 'https://example.com/' } };
 /** An extension page such as the popup or options page. */
 const page = { id: EXT };
+const offscreen = { id: EXT, url: 'chrome-extension://' + EXT + '/public/offscreen.html' };
 
 // Use the extension's own URL predicate so the test cannot drift from what
 // the worker actually accepts. A substring test would also accept
@@ -123,17 +124,27 @@ describe('extension page senders', () => {
 });
 
 describe('offscreen lifecycle', () => {
-  it('allows offscreen status from an extension context', () => {
+  it('accepts model events only from the offscreen inference document', () => {
     for (const type of OFFSCREEN_MESSAGE_TYPES) {
-      assert.equal(check(type, page).ok, true, `${type} must be allowed`);
+      assert.equal(check(type, offscreen).ok, true, type);
     }
   });
 
-  it('allows offscreen status even from a tab sender', () => {
-    // The offscreen document reports model status; a tab is not the sender in
-    // practice, but the type is never dangerous and must not be dropped.
+  it('rejects forged model events from mail tabs, extension pages, and other URLs', () => {
+    const impostors = [
+      mailTab,
+      otherTab,
+      page,
+      { id: EXT, url: 'chrome-extension://' + EXT + '/dist/popup.html' },
+      { ...offscreen, tab: { id: 4, url: 'https://mail.google.com/' } },
+      { id: EXT, url: 'chrome-extension://' + EXT + '/public/offscreen.html?fake=1' },
+    ];
     for (const type of OFFSCREEN_MESSAGE_TYPES) {
-      assert.equal(check(type, otherTab).ok, true, `${type} must not be dropped`);
+      for (const sender of impostors) {
+        const result = check(type, sender);
+        assert.equal(result.ok, false, type + ' from ' + JSON.stringify(sender));
+        assert.match(result.error, /not from the offscreen document/);
+      }
     }
   });
 });

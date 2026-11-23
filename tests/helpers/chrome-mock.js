@@ -147,8 +147,14 @@ function createChromeMock(options = {}) {
    */
   function deliver(message) {
     const results = [];
+    const sender = [
+      'OFFSCREEN_READY', 'OFFSCREEN_ERROR', 'MODEL_LOAD_PROGRESS',
+      'INFERENCE_RESULT', 'INFERENCE_ERROR',
+    ].includes(message?.type)
+      ? { id: 'phishnet-test', url: 'chrome-extension://phishnet-test/public/offscreen.html' }
+      : { id: 'phishnet-test' };
     for (const fn of [...messageListeners]) {
-      results.push(fn(message, { id: 'phishnet-test' }, () => {}));
+      results.push(fn(message, sender, () => {}));
     }
     return results;
   }

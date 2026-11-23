@@ -112,7 +112,8 @@ function extractWith(rootElement, { selectors = {}, attachments = [] } = {}) {
     UTILITY_SELECTORS: { skipElements: [] },
     BODY_TEXT_LIMIT: 12000,
     MAX_EXTRACTED_LINKS: 100,
-    document: { querySelector: () => null },
+    URL,
+    document: { baseURI: 'https://mail.google.com/mail/u/0/', querySelector: () => null },
     extractAttachments: () => attachments,
     PhishNet: { isUrlSuspicious: () => false }
   };
@@ -160,6 +161,23 @@ test('image-only links get display text from alt text', () => {
   const link = result.links.find((l) => String(l.href) === 'https://evil.example/');
   assert.ok(link, 'the link must be extracted');
   assert.equal(link.text, 'Verify your account');
+});
+
+test('relative and entity-encoded links reach phishing analysis as resolved URLs', () => {
+  const anchors = [
+    element('a', { attrs: { href: '/account/reset' }, text: 'Reset' }),
+    element('a', { attrs: { href: '//evil.example/collect' }, text: 'Continue' }),
+    element('a', { attrs: { href: 'https://evil.example/login?x=1&amp;y=2' }, text: 'Sign in' }),
+    element('a', { attrs: { href: 'javascript:alert(1)' }, text: 'Do not follow' }),
+    element('a', { attrs: { href: 'mailto:reply@example.com' }, text: 'Reply' })
+  ];
+  const result = extractWith(element('div', { children: anchors }));
+  assert.deepEqual(Array.from(result.links, (link) => String(link.href)), [
+    'https://mail.google.com/account/reset',
+    'https://evil.example/collect',
+    'https://evil.example/login?x=1&y=2',
+    'mailto:reply@example.com'
+  ]);
 });
 
 test('an image link with no alt text is still marked as an image link', () => {
