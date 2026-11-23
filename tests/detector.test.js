@@ -445,6 +445,27 @@ describe('URL analysis', () => {
     );
   });
 
+  test('checks redirect targets rather than flagging all URL-valued parameters', () => {
+    for (const url of [
+      'https://newsletter-provider.example.net/?redirect=https%3A%2F%2Fnewsletter-provider.example.net%2Finbox',
+      'https://newsletter-provider.example.net/?return=%2Fsettings',
+      'https://paypal.com/?continue=https%3A%2F%2Fpaypal.com%2Fmyaccount',
+      'https://newsletter-provider.example.net/?note=https%3A%2F%2Fevil.example.com'
+    ]) {
+      assert.equal(isUrlSuspicious(url), false, url);
+    }
+
+    for (const url of [
+      'https://newsletter-provider.example.net/?redirect=https%3A%2F%2Fevil.example.com%2Flogin',
+      'https://newsletter-provider.example.net/?redirect=%2F%2Fevil.example.com%2Flogin',
+      'https://newsletter-provider.example.net/?url=https%253A%252F%252Fevil.example.com',
+      'https://paypal.com/?continue=https%3A%2F%2Fevil.example.com',
+      'https://newsletter-provider.example.net/?next=http%3A%2F%2Fnewsletter-provider.example.net%2Flogin'
+    ]) {
+      assert.equal(isUrlSuspicious(url), true, url);
+    }
+  });
+
   test('flags invisible-character obfuscation', () => {
     assert.equal(isUrlSuspicious('https://example.co\u200Bm/secure'), true);
   });
