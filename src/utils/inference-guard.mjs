@@ -57,6 +57,13 @@ export function createInferenceGuard(timeoutMs = INFERENCE_TIMEOUT_MS) {
      * @returns {Promise<T>}
      */
     async run(work, run) {
+      // Reject immediately if this run was superseded by a newer begin()
+      // before run() was called. Without this, a stale run still races its
+      // work against the timeout, wasting CPU on post-processing nobody reads.
+      if (!this.isCurrent(run)) {
+        throw new Error('Inference superseded by a newer request');
+      }
+
       let timerId;
       const timeout = new Promise((_, reject) => {
         timerId = setTimeout(() => {
