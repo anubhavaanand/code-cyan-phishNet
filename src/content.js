@@ -754,14 +754,13 @@
             break;
           }
           const name = el.getAttribute('title') || el.getAttribute('download') || el.textContent || '';
-          // Normalize deceptive display names before they reach the detector.
-          // Keep the final 100 characters so long filenames cannot hide an
-          // executable extension by exceeding the extraction size limit.
-          const clean = name
-            .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
-            .trim()
-            .replace(/[.\s]+$/g, '')
-            .slice(-100);
+          // Normalize invisible/directional formatting and filesystem trailing
+          // punctuation before the filename reaches attachment heuristics.
+          const clean = name.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g, '')
+            .trim().replace(/[. ]+$/, '');
+          // Keep the suffix (including a dangerous extension) for oversized
+          // names while bounding the payload passed to the detector.
+          const boundedName = clean.length > 255 ? `…${clean.slice(-254)}` : clean;
           // A message can contain different files with the same filename.
           // Dedupe overlapping DOM selectors by identity, not name alone.
           const container = el.closest?.('[data-testid*="attachment"], .aZo') || el;
@@ -771,10 +770,10 @@
             (selectors.attachmentSizes && container.querySelector?.(selectors.attachmentSizes)?.textContent) || '').trim();
           const type = (attr(el, ['data-mime-type', 'data-type', 'type']) ||
             attr(container, ['data-mime-type', 'data-type', 'type'])).trim().toLowerCase();
-          const identity = JSON.stringify([clean, size, type]);
-          if (clean && !seenAttachments.has(identity)) {
+          const identity = JSON.stringify([boundedName, size, type]);
+          if (boundedName && !seenAttachments.has(identity)) {
             seenAttachments.add(identity);
-            attachments.push(clean);
+            attachments.push(boundedName);
           }
         }
       } catch (e) {}
