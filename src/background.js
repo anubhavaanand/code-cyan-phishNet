@@ -373,10 +373,18 @@ async function handleIncomingMessage(message, sender) {
       modelStatus = 'loading';
       modelLoadProgress = 0;
       broadcastModelStatus();
-      // Close the existing offscreen document so a fresh one re-runs init()
+      // Close the existing offscreen document so a fresh one re-runs init().
+      // On Chrome 109-149, hasDocument() may still report true immediately after
+      // closeDocument() because teardown is async. Wait for the document to be
+      // fully gone before creating a new one; otherwise createOffscreenDocument()
+      // bails early thinking one still exists and the reload is a no-op.
       try {
         if (chrome.offscreen?.closeDocument && await chrome.offscreen.hasDocument()) {
           await chrome.offscreen.closeDocument();
+          for (let i = 0; i < 50; i++) {
+            if (!(await chrome.offscreen.hasDocument())) break;
+            await new Promise((r) => setTimeout(r, 100));
+          }
         }
       } catch (e) {
         logger.debug('closeDocument during reload:', e?.message);
