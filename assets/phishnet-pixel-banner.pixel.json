@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "name": "phishnet-banner",
+  "width": 128,
+  "height": 48,
+  "palette": {
+    "b": "#0b1021",
+    "B": "#16213e",
+    "t": "#0f3460",
+    "n": "#533483",
+    "c": "#1fb6c4",
+    "C": "#7dd3fc",
+    "w": "#f4f4f0",
+    "a": "#f59e0b",
+    "r": "#ef4444"
+  },
+  "symbols": {
+    "shield": [
+      "....nnnn....",
+      "...nnccnn...",
+      "..nccCCcnn..",
+      ".nccCCCCcnn.",
+      ".nccCCCCccn.",
+      "nccCCCCcc cn",
+      "nccCCCCcc cn",
+      "nccCCCCcc cn",
+      "nnccccccccnn",
+      "nnnnnnnnnnnn"
+    ],
+    "envelope": [
+      "..wwwwwwww..",
+      ".wCCCCCCCCw.",
+      "wCCCCCCCCCCw",
+      "wCCw    wCCw",
+      "wCCCCCCCCCCw",
+      "wwwwwwwwwwww"
+    ],
+    "netcell": [
+      "ccCCCCcc",
+      "cCCCCCCc",
+      "cCCCCCCc",
+      "cCCCCCCc",
+      "cCCCCCCc",
+      "ccCCCCcc"
+    ]
+  },
+  "frames": [
+    {
+      "name": "banner",
+      "duration": 400,
+      "layers": [
+        { "name": "bg", "ops": [{ "op": "rect", "x": 0, "y": 0, "w": 128, "h": 48, "color": "b" }] },
+        { "name": "band", "ops": [{ "op": "rect", "x": 0, "y": 22, "w": 128, "h": 4, "color": "B" }] },
+        { "name": "shield", "y": 2, "x": 6, "ops": [{ "op": "stamp", "symbol": "shield", "x": 0, "y": 0 }] },
+        { "name": "envelope", "y": 30, "x": 54, "ops": [{ "op": "stamp", "symbol": "envelope", "x": 0, "y": 0 }] },
+        { "name": "net-accent", "y": 6, "x": 88, "ops": [{ "op": "stamp", "symbol": "netcell", "x": 0, "y": 0 }] }
+      ]
+    }
+  ],
+  "animations": {
+    "idle": { "frames": ["banner"], "loop": false }
+  },
+  "sheet": { "columns": 1, "padding": 0, "scale": 8 }
+}

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/phishnet_mountain_banner.gif" alt="PhishNet Banner" width="100%"/>
+<img src="assets/phishnet-pixel-banner.png" alt="PhishNet Banner — pixel-art shield net catching phishing email" width="100%"/>
 
 <br/>
 
