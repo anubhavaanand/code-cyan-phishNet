@@ -1,33 +1,41 @@
 #!/usr/bin/env python3
-"""Generate the PhishNet README pixel banner recipe (Pixelbolt v1).
+"""Generate the PhishNet README pixel banner (Pixelbolt v1 recipe, animated).
 
-Design: night scene, aerial-perspective mountain ranges, dithered sky,
-a shield anchoring a cyan net across dark water, envelopes caught in it.
-All shapes are generated procedurally so edge widths are exact.
+Constraints that shape this file:
+  * An animated recipe may be at most 256x256 per frame, so the scene is
+    authored at 256x96 and exported with --scale 4 (1024x384). Integer
+    scaling keeps every pixel on the grid.
+  * The recipe is the source of truth; this script exists so the procedural
+    parts (mountains, stars, web) stay reproducible and editable.
+
+Scene: dithered night sky, two aerial-perspective mountain ranges, dark water
+with depth dither, and a shield casting a web that catches envelopes.
+Animation: stars twinkle, water glints drift, the web pulses, envelopes bob.
 """
 import json
 import math
 import random
 
-W, H = 480, 160
-HORIZON = 96
-CX, CY = W // 2, 104
+W, H = 256, 96
+HORIZON = 58
+CX, CY = W // 2, 64
+FRAMES = 12
 
 PALETTE = {
-    # sky (deep -> nearer horizon)
+    # sky, deepest to horizon
     "A": "#070a19",
     "B": "#0b1029",
     "C": "#111a3d",
     "D": "#182451",
     "E": "#1f2e66",
-    # mountains: far range is hazier/lighter (aerial perspective)
+    # mountains: the far range is lighter, which is aerial perspective
     "F": "#2a3b78",
     "G": "#141c3c",
     # water
     "W0": "#060d1c",
     "W1": "#0a1428",
     "W2": "#0f1e38",
-    # net / cyan
+    # web / cyan
     "J": "#146c85",
     "K": "#25a7bd",
     "L": "#5fd7e8",
@@ -37,18 +45,26 @@ PALETTE = {
     "O": "#ffe066",
     "P": "#f2f7ff",
     "Q": "#9fb0cf",
-    # shield: dark steel face lit from the upper left
-    "R": "#24406b",
-    "S": "#3d5a8a",
-    "T": "#6b8fc4",
 }
 
-# ---------------------------------------------------------------- symbols
+# Per-frame web pulse: same shape, different brightness, so the web breathes.
+# Palettes keep the pulse inside the palette instead of adding new colours.
+WEB_PULSE = [
+    {"J": "#125f77", "K": "#2094aa", "L": "#55cde0"},
+    {"J": "#146c85", "K": "#25a7bd", "L": "#5fd7e8"},
+    {"J": "#17748e", "K": "#2bb4cb", "L": "#6fdef0"},
+    {"J": "#1a7d97", "K": "#31c0d7", "L": "#7fe6f5"},
+    {"J": "#17748e", "K": "#2bb4cb", "L": "#6fdef0"},
+    {"J": "#146c85", "K": "#25a7bd", "L": "#5fd7e8"},
+    {"J": "#125f77", "K": "#2094aa", "L": "#55cde0"},
+    {"J": "#0f5b72", "K": "#1c8ba0", "L": "#4cc3d6"},
+]
+
+STAR_DIM = ["#5d6b8c", "#3d4866", "#2a3350"]
 
 
 def norm(rows):
-    """Pad every row to the widest one. Hand-drawn grids drift by a pixel;
-    Pixelbolt rejects ragged rows, so normalise at the source."""
+    """Pad every row to the widest one: Pixelbolt rejects ragged grids."""
     w = max(len(r) for r in rows)
     return [r.ljust(w, ".") for r in rows]
 
@@ -56,8 +72,8 @@ def norm(rows):
 def shield_grid():
     """A shield: rounded shoulders, straight flanks, curving to a point.
 
-    Drawn by hand at 17x19 — a formula gave a lampshade. Light falls from the
-    upper left, so the left flank is lit and the right is in shadow.
+    Hand-drawn at 17px because a taper formula produced a lampshade. Light
+    falls from the upper left, so the left flank is lit and the right is not.
     """
     rows = [
         "....MMMMMMMMM....",
@@ -75,9 +91,9 @@ def shield_grid():
         "....MLLLKKM......",
         ".....MLLKM.......",
         "......MKM........",
-        ".......M........",
+        ".......M.........",
     ]
-    # gold check: two strokes, thick enough to read at 1x
+    # gold check: stamped three pixels thick so it survives the integer scale
     for x, y in [(5, 8), (6, 9), (7, 10), (8, 11), (9, 10), (10, 9),
                  (11, 8), (12, 7), (13, 6)]:
         for dx, dy in ((0, 0), (0, 1), (1, 0)):
@@ -91,7 +107,7 @@ def shield_grid():
 
 
 def envelope_grid():
-    """A caught envelope: pale body, darker flap, two fold lines at the top."""
+    """A caught envelope: pale body, darker flap, a V crease on the lid."""
     return norm([
         ".PPPPPPPPPPP.",
         "PLLLLLLLLLLLP",
@@ -105,35 +121,33 @@ def envelope_grid():
     ])
 
 
-def mountain_rows(seed, base, amp, roughness, color_far, color_ridge, lit=None):
-    """A range of sharp peaks: overlapping cones, each with a straight-sided
-    falloff, plus small crags. Returns rows plus the per-column top row so a
-    caller can light one face of each peak."""
+def mountain_rows(seed, amp, roughness, color_far, color_ridge, lit=None):
+    """A range of sharp peaks: overlapping straight-sided cones, plus crags.
+
+    A gaussian sum gave rolling hills; a cone falloff gives the hard ridge
+    line that reads as a mountain at this size.
+    """
     rnd = random.Random(seed)
     peaks = []
-    x = -20
+    x = -20.0
     while x < W + 20:
-        peak_h = rnd.uniform(0.45, 1.0) * amp
-        peak_w = rnd.uniform(0.10, 0.34) * amp + rnd.uniform(10, 34)
-        peaks.append((x, peak_w, peak_h))
-        x += rnd.uniform(0.07, 0.20) * amp + 14
+        peaks.append((x,
+                      rnd.uniform(0.10, 0.34) * amp + rnd.uniform(6, 18),
+                      rnd.uniform(0.45, 1.0) * amp))
+        x += rnd.uniform(0.07, 0.20) * amp + 9
     heights = []
     for cx in range(W):
-        best = 0.0
-        second = 0.0
+        best = second = 0.0
         for px, pw, ph in peaks:
             d = abs(cx - px)
             if d >= pw:
                 continue
-            # straight-sided cone with a rounded tip
             v = ph * (1.0 - (d / pw) ** 1.35)
             if v > best:
                 second, best = best, v
             elif v > second:
                 second = v
-        h = max(best, second * 0.82)
-        # crags: a small deterministic offset per column
-        h += (rnd.random() - 0.5) * 2.4 * roughness
+        h = max(best, second * 0.82) + (rnd.random() - 0.5) * 2.4 * roughness
         heights.append(max(0, int(round(h))))
     rows = []
     for y in range(int(max(heights)) + 2):
@@ -147,11 +161,10 @@ def mountain_rows(seed, base, amp, roughness, color_far, color_ridge, lit=None):
             else:
                 row.append(".")
         rows.append("".join(row))
-    # lit south-east face: recolour the pixels just under each ridge line
+    # lit faces: the slope that rises to the right is lit from the upper left
     if lit:
         for cx in range(1, W):
-            slope = heights[cx] - heights[cx - 1]
-            if slope > 0:                      # rising to the right -> left face
+            if heights[cx] - heights[cx - 1] > 0:
                 for d in range(1, min(4, heights[cx])):
                     ty = heights[cx] + d
                     if ty < len(rows):
@@ -159,84 +172,82 @@ def mountain_rows(seed, base, amp, roughness, color_far, color_ridge, lit=None):
                         if r[cx] == color_far:
                             r[cx] = lit
                             rows[ty] = "".join(r)
-    return rows, heights
+    return rows
 
 
-# ---------------------------------------------------------------- layers
+def grid_ops(rows, y, chunk=240):
+    """Grid rows cap at 256 chars; emit wide ranges in slices."""
+    out = []
+    total = len(rows[0]) if rows else 0
+    for sx in range(0, total, chunk):
+        out.append({"op": "grid", "x": sx, "y": y,
+                    "rows": [r[sx:sx + chunk] for r in rows]})
+    return out
 
-def sky_layers():
-    """Banded sky with dithered seams, then stars."""
-    bands = [(0, 30, "A"), (30, 52, "B"), (52, 70, "C"), (70, 84, "D"), (84, HORIZON, "E")]
-    ops = []
-    for y0, y1, col in bands:
-        ops.append({"op": "rect", "x": 0, "y": y0, "w": W, "h": y1 - y0, "color": col})
-    # dither the seams so bands dissolve instead of stepping
+
+def sky_ops(t):
+    bands = [(0, 18, "A"), (18, 31, "B"), (31, 42, "C"), (42, 50, "D"), (50, HORIZON, "E")]
+    ops = [{"op": "rect", "x": 0, "y": y0, "w": W, "h": y1 - y0, "color": c}
+           for y0, y1, c in bands]
     for y0, _y1, _c in bands[1:]:
-        op = {"op": "dither", "x": 0, "y": y0 - 6, "w": W, "h": 12,
-              "color": "B", "density": 0.5, "pattern": "bayer4"}
-        if y0 == 30:
-            op["over"] = [PALETTE["A"], PALETTE["B"]]
-        ops.append(op)
-    # horizon glow
-    ops.append({"op": "dither", "x": 0, "y": HORIZON - 14, "w": W, "h": 14,
+        ops.append({"op": "dither", "x": 0, "y": y0 - 4, "w": W, "h": 8,
+                    "color": "B", "density": 0.5, "pattern": "bayer4"})
+    ops.append({"op": "dither", "x": 0, "y": HORIZON - 9, "w": W, "h": 9,
                 "color": "E", "density": [0.0, 0.6], "direction": "down",
                 "pattern": "bayer4"})
-    # stars — upper sky only, sparser so bands read clean
+    # stars: a fixed field whose brightness steps, so they twinkle in place
     rnd = random.Random(11)
-    for _ in range(58):
+    for _ in range(34):
         x = rnd.randrange(2, W - 2)
-        y = rnd.randrange(2, 52)
-        ops.append({"op": "pixel", "x": x, "y": y,
-                    "color": "P" if rnd.random() < 0.22 else "Q"})
-    for _ in range(6):  # a few bright ones with a cross
-        x = rnd.randrange(10, W - 10)
-        y = rnd.randrange(4, 34)
-        ops.append({"op": "pixel", "x": x, "y": y, "color": "P"})
-        ops.append({"op": "pixel", "x": x - 1, "y": y, "color": "Q"})
-        ops.append({"op": "pixel", "x": x + 1, "y": y, "color": "Q"})
-        ops.append({"op": "pixel", "x": x, "y": y - 1, "color": "Q"})
+        y = rnd.randrange(2, 34)
+        bright = rnd.random() < 0.28
+        phase = rnd.randrange(0, FRAMES)
+        step = (t + phase) % FRAMES
+        if step == 0:
+            col = STAR_DIM[0]
+        elif step in (3, 4):
+            col = STAR_DIM[1]
+        else:
+            col = "P" if bright else "Q"
+        ops.append({"op": "pixel", "x": x, "y": y, "color": col})
     return ops
 
 
-def water_layers():
+def water_ops(t):
     ops = [
         {"op": "rect", "x": 0, "y": HORIZON, "w": W, "h": H - HORIZON, "color": "W0"},
-        {"op": "dither", "x": 0, "y": HORIZON, "w": W, "h": 22, "color": "W2",
+        {"op": "dither", "x": 0, "y": HORIZON, "w": W, "h": 14, "color": "W2",
          "density": [0.75, 0.0], "direction": "down", "pattern": "bayer8"},
-        {"op": "dither", "x": 0, "y": HORIZON + 8, "w": W, "h": H - HORIZON - 8,
+        {"op": "dither", "x": 0, "y": HORIZON + 6, "w": W, "h": H - HORIZON - 6,
          "color": "W1", "density": [0.45, 0.04], "direction": "down",
          "pattern": "bayer4"},
     ]
-    # horizontal glints that suggest still water
+    # glints drift left between frames; the modulo wraps them around
     rnd = random.Random(3)
-    for _ in range(46):
-        x = rnd.randrange(0, W - 6)
+    shift = t * 3
+    for _ in range(20):
+        x = (rnd.randrange(0, W) - shift) % W
         y = rnd.randrange(HORIZON + 2, H - 1)
         ln = rnd.choice([2, 2, 3, 4])
-        ops.append({"op": "line", "x": x, "y": y, "x2": x + ln, "y2": y,
-                    "color": "W2"})
+        ops.append({"op": "line", "x": x, "y": y, "x2": min(W - 1, x + ln),
+                    "y2": y, "color": "W2"})
     return ops
 
 
-def net_layers():
-    """A real web: radial strands, arcs between adjacent strands, and
-    cross-links along each strand. Confined to the water so the title
-    band stays readable."""
+def net_ops():
+    """Radial strands plus arcs between neighbours: a web, not a target."""
     ops = []
     rays = 18
-    rx, ry = 300, 62                      # the web's ellipse, mapped to water
+    rx, ry = 150, 30
     angs = [(math.pi * 2 * i / rays) + 0.09 for i in range(rays)]
 
     def pt(a, r):
         return (int(CX + math.cos(a) * r * rx), int(CY + math.sin(a) * r * ry))
 
-    # radial strands
     for a in angs:
         x2, y2 = pt(a, 1.0)
-        y2 = max(HORIZON + 2, min(H - 1, y2))
-        ops.append({"op": "line", "x": CX, "y": CY, "x2": x2, "y2": y2, "color": "J"})
-
-    # arcs: connect neighbouring strands at several radii
+        ops.append({"op": "line", "x": CX, "y": CY, "x2": x2,
+                    "y2": max(HORIZON + 2, min(H - 1, y2)), "color": "J"})
     for r in (0.22, 0.38, 0.55, 0.72, 0.9):
         col = "L" if r < 0.3 else ("K" if r < 0.7 else "J")
         for i in range(rays):
@@ -245,77 +256,82 @@ def net_layers():
             if min(ay, by) < HORIZON + 2:
                 continue
             ops.append({"op": "line", "x": ax, "y": ay, "x2": bx, "y2": by, "color": col})
-
-    # bright hub
-    ops.append({"op": "ellipse", "x": CX - 14, "y": CY - 5, "w": 28, "h": 10,
+    ops.append({"op": "ellipse", "x": CX - 12, "y": CY - 4, "w": 24, "h": 8,
                 "color": "M", "filled": False})
     return ops
 
 
-def envelope_ops():
-    """Envelopes snagged in the web: each sits on a strand with a shadow."""
+def hub_glow_ops(t):
+    """The web's bright hub breathes with the pulse, so the eye has a beat."""
+    k = (t % len(WEB_PULSE))
+    width = 22 + (k * 2) if k <= 4 else 22 + (8 - k) * 2
+    height = max(4, width // 3)
+    return [{"op": "ellipse", "x": CX - width // 2, "y": CY - height // 2,
+             "w": width, "h": height,
+             "color": "L" if k % 2 else "M", "filled": False}]
+
+
+def envelope_ops(t):
+    """Each envelope bobs on its own phase, one pixel a step."""
     ops = []
-    for ex, ey, flip in [(102, 104, True), (372, 122, False), (416, 100, True)]:
-        ops.append({"op": "ellipse", "x": ex - 2, "y": ey + 11, "w": 30, "h": 5,
+    for ex, ey, flip, phase in [(54, 66, True, 0), (196, 78, False, 3), (222, 64, True, 5)]:
+        bob = int(round(2 * math.sin((t + phase) / FRAMES * math.tau)))
+        ops.append({"op": "ellipse", "x": ex - 1, "y": ey + 10 + bob, "w": 16, "h": 3,
                     "color": "W0", "filled": True})
-        ops.append({"op": "stamp", "symbol": "envelope", "x": ex, "y": ey,
-                    "scale": 2, "flipX": flip})
+        ops.append({"op": "stamp", "symbol": "envelope", "x": ex, "y": ey + bob,
+                    "flipX": flip})
     return ops
 
 
 def main():
-    far_rows, _ = mountain_rows(7, 0, 24.0, 0.45, "F", "D", lit="E")
-    near_rows, _ = mountain_rows(23, 0, 38.0, 0.7, "G", "F", lit="F")
+    far = mountain_rows(7, 14.0, 0.45, "F", "D", lit="E")
+    near = mountain_rows(23, 22.0, 0.7, "G", "F", lit="F")
 
-    def grid_ops(rows, y, x0=0, chunk=240):
-        """Grid rows are capped at 256 chars, so a 480-wide range is emitted
-        in slices whose columns are relative to each slice's x."""
-        out = []
-        total = len(rows[0]) if rows else 0
-        for sx in range(0, total, chunk):
-            sl = [r[sx:sx + chunk] for r in rows]
-            out.append({"op": "grid", "x": x0 + sx, "y": y, "rows": sl})
-        return out
-
-    layers = [
-        {"name": "sky", "ops": sky_layers()},
-        {"name": "mountains-far", "ops": grid_ops(far_rows, HORIZON - len(far_rows)) + [
-            {"op": "dither", "x": 0, "y": HORIZON - len(far_rows),
-             "w": W, "h": len(far_rows), "color": "E", "density": [0.35, 0.0],
-             "direction": "down", "pattern": "bayer4"},
-        ]},
-        {"name": "mountains-near", "ops": grid_ops(near_rows, HORIZON - len(near_rows) + 4)},
-        {"name": "water", "ops": water_layers()},
-        {"name": "net", "ops": net_layers()},
-        {"name": "catches", "ops": envelope_ops()},
-        {"name": "shield", "ops": [
-            {"op": "ellipse", "x": CX - 34, "y": CY + 20, "w": 68, "h": 14,
-             "color": "W0", "filled": True},
-            {"op": "stamp", "symbol": "shield", "x": CX - 26, "y": CY - 52, "scale": 3},
-        ]},
-        {"name": "titles", "ops": [
-            {"op": "text", "text": "PHISHNET", "x": CX, "y": 12, "color": "P",
-             "align": "center", "spacing": 4, "scale": 3},
-            {"op": "text", "text": "ON-DEVICE AI EMAIL SECURITY", "x": CX, "y": 46,
-             "color": "K", "align": "center", "spacing": 3, "scale": 1},
-        ]},
-    ]
+    frames = []
+    for t in range(FRAMES):
+        frames.append({
+            "name": f"f{t}",
+            "duration": 110,
+            "layers": [
+                {"name": "sky", "ops": sky_ops(t)},
+                {"name": "mountains-far",
+                 "ops": grid_ops(far, HORIZON - len(far)) + [
+                     {"op": "dither", "x": 0, "y": HORIZON - len(far), "w": W,
+                      "h": len(far), "color": "E", "density": [0.35, 0.0],
+                      "direction": "down", "pattern": "bayer4"}]},
+                {"name": "mountains-near", "ops": grid_ops(near, HORIZON - len(near) + 3)},
+                {"name": "water", "ops": water_ops(t)},
+                {"name": "net", "palette": WEB_PULSE[t % len(WEB_PULSE)], "ops": net_ops()},
+                {"name": "hub-glow", "palette": WEB_PULSE[t % len(WEB_PULSE)],
+                 "ops": hub_glow_ops(t)},
+                {"name": "catches", "ops": envelope_ops(t)},
+                {"name": "shield", "ops": [
+                    {"op": "ellipse", "x": CX - 24, "y": CY + 14, "w": 48, "h": 10,
+                     "color": "W0", "filled": True},
+                    {"op": "stamp", "symbol": "shield", "x": CX - 17, "y": CY - 32,
+                     "scale": 2},
+                ]},
+                {"name": "titles", "ops": [
+                    {"op": "text", "text": "PHISHNET", "x": CX, "y": 4, "color": "P",
+                     "align": "center", "spacing": 3, "scale": 2},
+                    {"op": "text", "text": "ON-DEVICE AI EMAIL SECURITY", "x": CX,
+                     "y": 24, "color": "K", "align": "center", "spacing": 2},
+                ]},
+            ],
+        })
 
     recipe = {
         "version": 1,
-        "name": "phishnet-banner-v3",
+        "name": "phishnet-banner",
         "width": W,
         "height": H,
         "palette": PALETTE,
-        "symbols": {
-            "shield": shield_grid(),
-            "envelope": envelope_grid(),
-        },
-        "frames": [{"name": "banner", "duration": 400, "layers": layers}],
-        "animations": {"still": {"frames": ["banner"], "loop": False}},
-        "sheet": {"columns": 1, "padding": 0, "scale": 1},
+        "symbols": {"shield": shield_grid(), "envelope": envelope_grid()},
+        "frames": frames,
+        "animations": {"loop": {"frames": [f"f{t}" for t in range(FRAMES)]}},
+        "sheet": {"columns": FRAMES, "padding": 0, "scale": 1},
     }
-    with open("phishnet-banner-v3.json", "w") as f:
+    with open("phishnet-banner-anim.json", "w") as f:
         json.dump(recipe, f, indent=1)
     print("ok")
 
