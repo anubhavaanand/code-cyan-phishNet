@@ -1,47 +1,68 @@
 {
   "version": 1,
-  "name": "phishnet-banner",
+  "name": "phishnet-banner-v2",
   "width": 128,
   "height": 48,
   "palette": {
-    "b": "#0b1021",
-    "B": "#16213e",
-    "t": "#0f3460",
-    "n": "#533483",
-    "c": "#1fb6c4",
-    "C": "#7dd3fc",
-    "w": "#f4f4f0",
-    "a": "#f59e0b",
-    "r": "#ef4444"
+    "0": "#0a0f2a",
+    "1": "#151f40",
+    "2": "#1f2d59",
+    "3": "#2a3c7e",
+    "4": "#4a6fa5",
+    "5": "#7fb3d5",
+    "6": "#b8d4ee",
+    "7": "#e8f2fd",
+    "8": "#f59e0b",
+    "9": "#fbbf24",
+    "a": "#ef4444",
+    "b": "#fca5a5",
+    "P": "#e8f2fd",
+    "H": "#b8d4ee",
+    "N": "#7fb3d5",
+    "S": "#fbbf24"
   },
   "symbols": {
+    "phishnet": [
+      "PPPPP..HHHHHHH..NNN   NNN..SSSSS",
+      "P   P..H     H..N N   N N..     ",
+      "P   P..H     H..N N   N N..     ",
+      "PPPPP..HHHHHHH..N N   N N..SSSSS",
+      "P P  ..H   H  ..N N   N N..    S",
+      "P  P ..H   H ..N N   N N..   S  ",
+      "P   P..H     H..NNN   NNN..SSSSS",
+      "                                "
+    ],
     "shield": [
-      "....nnnn....",
-      "...nnccnn...",
-      "..nccCCcnn..",
-      ".nccCCCCcnn.",
-      ".nccCCCCccn.",
-      "nccCCCCcc cn",
-      "nccCCCCcc cn",
-      "nccCCCCcc cn",
-      "nnccccccccnn",
-      "nnnnnnnnnnnn"
+      ".......77.......                ",
+      "......77777.....                ",
+      ".....755557.....                ",
+      "....7566657....                 ",
+      "...756666657...                 ",
+      "..75666666657..                 ",
+      "..75566666557..                 ",
+      "..75566666557..                 ",
+      "..75556665557..                 ",
+      ".755555555557.                  ",
+      "....7555555....                 ",
+      "....7555555....                 ",
+      "......77777.....                ",
+      ".......77.......                "
+    ],
+    "netgrid": [
+      "559955",
+      "599995",
+      "999999",
+      "999999",
+      "599995",
+      "559955"
     ],
     "envelope": [
-      "..wwwwwwww..",
-      ".wCCCCCCCCw.",
-      "wCCCCCCCCCCw",
-      "wCCw    wCCw",
-      "wCCCCCCCCCCw",
-      "wwwwwwwwwwww"
-    ],
-    "netcell": [
-      "ccCCCCcc",
-      "cCCCCCCc",
-      "cCCCCCCc",
-      "cCCCCCCc",
-      "cCCCCCCc",
-      "ccCCCCcc"
+      "..7777..",
+      ".755557.",
+      "75555577",
+      "75595577",
+      "775577..",
+      ".7777..."
     ]
   },
   "frames": [
@@ -49,16 +70,98 @@
       "name": "banner",
       "duration": 400,
       "layers": [
-        { "name": "bg", "ops": [{ "op": "rect", "x": 0, "y": 0, "w": 128, "h": 48, "color": "b" }] },
-        { "name": "band", "ops": [{ "op": "rect", "x": 0, "y": 22, "w": 128, "h": 4, "color": "B" }] },
-        { "name": "shield", "y": 2, "x": 6, "ops": [{ "op": "stamp", "symbol": "shield", "x": 0, "y": 0 }] },
-        { "name": "envelope", "y": 30, "x": 54, "ops": [{ "op": "stamp", "symbol": "envelope", "x": 0, "y": 0 }] },
-        { "name": "net-accent", "y": 6, "x": 88, "ops": [{ "op": "stamp", "symbol": "netcell", "x": 0, "y": 0 }] }
+        {
+          "name": "bg-deep",
+          "ops": [
+            {
+              "op": "rect",
+              "x": 0,
+              "y": 0,
+              "w": 128,
+              "h": 48,
+              "color": "0"
+            }
+          ]
+        },
+        {
+          "name": "bg-panel",
+          "ops": [
+            {
+              "op": "rect",
+              "x": 0,
+              "y": 0,
+              "w": 128,
+              "h": 48,
+              "color": "1"
+            }
+          ]
+        },
+        {
+          "name": "title",
+          "y": 10,
+          "x": 6,
+          "ops": [
+            {
+              "op": "stamp",
+              "symbol": "phishnet",
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "name": "shield",
+          "y": 26,
+          "x": 60,
+          "ops": [
+            {
+              "op": "stamp",
+              "symbol": "shield",
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "name": "net-grid",
+          "y": 30,
+          "x": 88,
+          "ops": [
+            {
+              "op": "stamp",
+              "symbol": "netgrid",
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "name": "envelope",
+          "y": 34,
+          "x": 104,
+          "ops": [
+            {
+              "op": "stamp",
+              "symbol": "envelope",
+              "x": 0,
+              "y": 0
+            }
+          ]
+        }
       ]
     }
   ],
   "animations": {
-    "idle": { "frames": ["banner"], "loop": false }
+    "idle": {
+      "frames": [
+        "banner"
+      ],
+      "loop": false
+    }
   },
-  "sheet": { "columns": 1, "padding": 0, "scale": 8 }
+  "sheet": {
+    "columns": 1,
+    "padding": 0,
+    "scale": 8
+  }
 }
