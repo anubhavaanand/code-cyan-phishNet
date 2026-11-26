@@ -73,13 +73,18 @@
 
     logger.debug(`Initialized for ${currentSelectors.provider} (${currentSelectors.variant})`);
 
+    // Register and observe before the first await: messages can arrive as soon
+    // as the tab is live, and a listener added after a microtask would miss
+    // them. The sweep itself waits for settings.
+    registerMessageListener();
+    startEmailObserver();
+
     // Load settings once so scans use the cached copy instead of round-tripping
     // to the service worker on every email (issue #148). SETTINGS_UPDATE keeps
     // the copy fresh afterwards.
     await fetchSettings();
 
-    // Start consolidated observer
-    startEmailObserver();
+    runInitialSweep();
 
     // A hidden-then-restored tab needs its own sweep; the observer only sees
     // mutations, not a tab that was in the background.
@@ -87,6 +92,19 @@
 
     // Notify background that content script is ready
     chrome.runtime.sendMessage({ type: 'CONTENT_READY', provider: currentSelectors.provider }).catch(() => {});
+  }
+
+  /**
+   * Register the runtime message listener exactly once.
+   *
+   * `init()` runs again after DOMContentLoaded and on SPA re-initialisation, so
+   * a second registration would deliver every message twice — the same reason
+   * the cleanup path guards on `messageListenerRegistered`.
+   */
+  function registerMessageListener() {
+    if (messageListenerRegistered) return;
+    chrome.runtime.onMessage.addListener(handleMessage);
+    messageListenerRegistered = true;
   }
 
   /**
@@ -111,7 +129,12 @@
   }
 
   /**
-   * Consolidated MutationObserver to detect both email opens and SPA navigation
+   * Consolidated MutationObserver to detect both email opens and SPA navigation.
+   *
+   * The observer goes up immediately so an unload during the settings
+   * round-trip still has something to disconnect, but the initial sweep is
+   * deferred: sweeping before settings land would scan against defaults and
+   * ignore `autoScan: false`.
    */
   function startEmailObserver() {
     if (observer) {
@@ -134,8 +157,10 @@
       childList: true,
       subtree: true
     });
+  }
 
-    // Initial check
+  /** First sweep of the tab, run once settings are known. */
+  function runInitialSweep() {
     checkForNewEmails();
   }
 
